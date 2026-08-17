@@ -1221,6 +1221,20 @@ async function signIn() {
   return pendingSignIn;
 }
 
+/**
+ * 起動時の自動ログイン。前にログインしたことがある端末で、
+ * ボタンを押さずに静かにログインを試す。ダメなら null（普通のログイン画面へ）。
+ */
+async function trySilentSignIn() {
+  try {
+    await requestToken("");
+    accountEmail = await fetchEmail();
+    return accountEmail ? { email: accountEmail } : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 /** トークンが実は死んでいた（APIが401を返した）ときに呼ぶ。全画面に再ログインを促す */
 function notifyAuthLost() {
   accessToken = null;
@@ -1270,7 +1284,7 @@ function onAuthLost(fn) {
   return () => authLostHandlers.delete(fn);
 }
 
-return { init, signIn, notifyAuthLost, ensureToken, getAccountEmail, onAuthLost };
+return { init, signIn, trySilentSignIn, notifyAuthLost, ensureToken, getAccountEmail, onAuthLost };
 })();
 
 const __npu_drive = (() => {
@@ -2773,6 +2787,7 @@ const actions = {
     try {
       const { email } = await auth.signIn();
       state.setEmail(email);
+      storage.save("lastEmail", email);   // 次回から自動ログインを試すための目印
       await loadJobs();
       // 起動時に「前回の続きから」を選んでいた場合は、案件選択を飛ばして工程選択へ
       state.goto(state.getState().job ? "step" : "jobs");
@@ -3121,6 +3136,21 @@ async function boot() {
     state.restoreDraft(draft);
   } else {
     state.clearDraft();
+  }
+
+  // 前にログインしたことがある端末なら、ボタンを押させずに静かに自動ログイン
+  if (storage.load("lastEmail", null)) {
+    const silent = await auth.trySilentSignIn();
+    if (silent && silent.email) {
+      state.setEmail(silent.email);
+      try {
+        await loadJobs();
+        state.goto(state.getState().job ? "step" : "jobs");
+        return;
+      } catch (e) {
+        showError(e);
+      }
+    }
   }
   state.goto("login");
 }

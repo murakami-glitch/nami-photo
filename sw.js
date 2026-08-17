@@ -1,4 +1,4 @@
-const VERSION = "2026-08-17T1528";
+const VERSION = "2026-08-17T1550";
 const CACHE_NAME = `npu-${VERSION}`;
 const APP_URL = "./";
 

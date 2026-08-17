@@ -294,6 +294,83 @@ input[type="search"]::placeholder { color: var(--c-ink-weak); }
   text-align: center; margin-bottom: 6px;
 }
 
+/* ---- Phase 2：定点ビフォーアフター ---- */
+
+/* 工程画面の入口ボタン（紺の縁取りで「素材づくり」感を出す） */
+.spots-entry {
+  background: var(--c-card); color: var(--c-navy);
+  border: 1.5px solid var(--c-navy);
+  box-shadow: var(--shadow);
+}
+.spots-entry:active { background: rgba(22, 35, 61, 0.06); }
+
+/* 定点一覧 */
+.spots__list { margin-bottom: 4px; }
+.spots__status {
+  flex-shrink: 0;
+  font-size: 12px; font-weight: 700; color: var(--c-navy);
+  background: rgba(22, 35, 61, 0.07);
+  border-radius: 999px; padding: 4px 10px;
+  white-space: nowrap;
+}
+
+/* 定点の追加フォーム */
+.spots__add {
+  background: var(--c-card);
+  border: 1px solid var(--c-line); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 14px; margin-top: 10px;
+}
+.spots__label {
+  display: block;
+  font-size: 12px; font-weight: 700; color: var(--c-ink-weak);
+  margin-bottom: 10px;
+}
+.spots__input {
+  display: block; width: 100%; min-height: 46px;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid var(--c-line); border-radius: 8px;
+  padding: 0 12px;
+  font-family: inherit; font-size: 15px; color: var(--c-ink);
+  outline: none;
+  -webkit-appearance: none; appearance: none;
+}
+.spots__input:focus { border-color: var(--c-navy); box-shadow: 0 0 0 3px rgba(22, 35, 61, 0.12); }
+.spots__error { font-size: 13px; margin: 2px 0 6px; }
+
+/* 撮影画面：映像・写真とbeforeの重ね合わせ */
+.shoot__stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: 62vh;
+  background: #0d1524;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.shoot__media {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;      /* 重ね合わせの位置が映像とズレないよう両方contain */
+  display: block;
+}
+.shoot__overlay {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.shoot__opacity {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; font-weight: 600; color: var(--c-navy);
+  margin: 8px 0 2px;
+}
+.shoot__opacity input[type="range"] { flex: 1; accent-color: var(--c-primary); min-height: 44px; }
+.shoot__shutter { background: var(--c-navy); box-shadow: 0 2px 6px rgba(22, 35, 61, 0.35); }
+.shoot__shutter:active { background: var(--c-navy-soft); }
+
 </style>
 </head>
 <body>
@@ -791,7 +868,12 @@ const state = {
   overall: { done: 0, total: 0 },
   targetFolderId: null,   // アップ先フォルダID
   targetPath: "",         // 画面に出すフルパス文字列
-  toast: null
+  toast: null,
+  // ---- Phase 2：定点ビフォーアフター ----
+  spotsData: null,        // _定点.json の中身（{meta, site, spots[]}）
+  spotsFileId: null,      // _定点.json のDriveファイルID（未作成ならnull）
+  spotsBusy: false,       // 読み込み・保存中フラグ（連打防止）
+  shoot: null             // 撮影画面の状態 { code, kind, beforeUrl, mode } | null
 };
 
 let seq = 0;              // 写真の一時ID採番
@@ -830,6 +912,26 @@ function goto(screenName) {
   emit();
 }
 
+// ---- Phase 2：定点ビフォーアフター ----
+
+function setSpots(fileId, data) {
+  state.spotsFileId = fileId;
+  state.spotsData = data;
+  emit();
+}
+
+function setSpotsBusy(flag) {
+  state.spotsBusy = flag;
+  emit();
+}
+
+/** 撮影画面の状態を入れる。beforeUrlはObjectURLなので、消すときにrevokeする */
+function setShoot(shoot) {
+  if (state.shoot && state.shoot.beforeUrl) URL.revokeObjectURL(state.shoot.beforeUrl);
+  state.shoot = shoot;
+  emit();
+}
+
 function setEmail(email) {
   state.email = email;
   emit();
@@ -851,6 +953,11 @@ function setJob(job) {
   state.dayFolders = [];   // 前の案件のDay一覧を持ち越さない
   state.targetFolderId = null;
   state.targetPath = "";
+  // 前の案件の定点台帳・撮影状態も必ず捨てる（別案件の台帳を書く事故の防止）
+  state.spotsData = null;
+  state.spotsFileId = null;
+  if (state.shoot && state.shoot.beforeUrl) URL.revokeObjectURL(state.shoot.beforeUrl);
+  state.shoot = null;
   saveDraft();
   emit();
 }
@@ -1009,7 +1116,7 @@ function restoreDraft(draft) {
   emit();
 }
 
-return { getState, _photosRef, subscribe, goto, setEmail, setJobs, setJob, setStep, setDayFolders, setTarget, setUploading, setOverall, patchPhoto, showToast, addPhotos, removePhoto, clearPhotos, releasePhotoData, loadDraft, clearDraft, restoreDraft };
+return { getState, _photosRef, subscribe, goto, setSpots, setSpotsBusy, setShoot, setEmail, setJobs, setJob, setStep, setDayFolders, setTarget, setUploading, setOverall, patchPhoto, showToast, addPhotos, removePhoto, clearPhotos, releasePhotoData, loadDraft, clearDraft, restoreDraft };
 })();
 
 const __npu_auth = (() => {
@@ -1365,12 +1472,272 @@ function folderWebUrl(folderId) {
   return `https://drive.google.com/drive/folders/${folderId}`;
 }
 
-return { resolveJobsFolderId, listJobs, findChild, ensureFolder, resolveStepFolderId, listDayFolders, listFileNames, startResumable, sendChunk, probeResumable, folderWebUrl };
+// ---- Phase 2：定点ビフォーアフター用 ----
+
+/** フォルダ直下からJSONファイルを名前で探す → {id,name} | null（フォルダ以外を対象にする版） */
+async function findJsonInFolder(parentId, name) {
+  const hits = await listAll(
+    `'${parentId}' in parents and name='${esc(name)}' and mimeType!='${FOLDER_MIME}' and trashed=false`
+  );
+  return hits.length > 0 ? hits[0] : null;
+}
+
+/** ファイルの中身をBlobで取得（before写真・_定点.json用） */
+async function downloadFileBlob(fileId) {
+  const res = await gfetch(`${API}/files/${fileId}?alt=media`);
+  if (!res.ok) throw new Error("ファイルの取得に失敗しました（" + res.status + "）");
+  return res.blob();
+}
+
+/** JSONファイルを新規作成 → fileId（multipart create。既存を触らない） */
+async function createJsonFile(parentId, name, obj) {
+  const boundary = "npu_boundary_" + Date.now();
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+    JSON.stringify({ name, parents: [parentId], mimeType: "application/json" }) +
+    `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
+    JSON.stringify(obj) +
+    `\r\n--${boundary}--`;
+  const res = await gfetch(`${UPLOAD_API}/files?uploadType=multipart&fields=id`, {
+    method: "POST",
+    headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+    body
+  });
+  if (!res.ok) throw new Error("台帳の作成に失敗しました（" + res.status + "）");
+  return (await res.json()).id;
+}
+
+/**
+ * 【唯一の許可されたupdate】_定点.json の中身だけを更新する。
+ * 事故防止のガード2段：
+ *  1. 対象ファイルの名前が _定点.json であること
+ *  2. 対象ファイルの親が「今開いている案件フォルダ」であること（別案件の台帳を書かない）
+ * 写真・フォルダには絶対に使わない（CONTRACTS §7-1）。
+ */
+async function updateSpotsJson(fileId, obj, expectedParentId) {
+  const meta = await gfetch(`${API}/files/${fileId}?fields=name,parents`);
+  if (!meta.ok) throw new Error("台帳の確認に失敗しました（" + meta.status + "）");
+  const { name, parents } = await meta.json();
+  if (name !== "_定点.json") {
+    throw new Error("安全ガード：_定点.json 以外の更新は禁止されています（対象: " + name + "）");
+  }
+  if (expectedParentId && !(parents || []).includes(expectedParentId)) {
+    throw new Error("安全ガード：別の案件の台帳は更新できません");
+  }
+  const res = await gfetch(`${UPLOAD_API}/files/${fileId}?uploadType=media`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(obj)
+  });
+  if (!res.ok) throw new Error("台帳の更新に失敗しました（" + res.status + "）");
+}
+
+return { resolveJobsFolderId, listJobs, findChild, ensureFolder, resolveStepFolderId, listDayFolders, listFileNames, startResumable, sendChunk, probeResumable, folderWebUrl, findJsonInFolder, downloadFileBlob, createJsonFile, updateSpotsJson };
+})();
+
+const __npu_spots = (() => {
+const { findJsonInFolder, downloadFileBlob, createJsonFile, updateSpotsJson } = __npu_drive;
+// spots.js — 定点ビフォーアフターの台帳（_定点.json）の読み書き（担当：Claude）
+// 台帳は案件フォルダ直下に置き、端末をまたいで共有される。
+
+const SPOTS_FILE_NAME = "_定点.json";
+
+/** 新しい空の台帳を作る */
+function freshData(site) {
+  return {
+    meta: { app: "naminooto-photo-upload", version: "1.0", generatedAt: new Date().toISOString() },
+    site: site || "",
+    spots: []
+  };
+}
+
+/**
+ * 案件の定点台帳を読み込む → { fileId|null, data }
+ * 無ければ新規の器を返す（この時点ではDriveに作らない。最初の保存時に作る）。
+ * 電波などの取得失敗は throw する（呼び出し側がエラー表示。空の台帳で上書きしないため）。
+ * 「中身が壊れたJSON」のときだけ新規の器を返す（写真は消えないので安全側）。
+ */
+async function loadSpots(job) {
+  const found = await findJsonInFolder(job.id, SPOTS_FILE_NAME);
+  if (!found) return { fileId: null, data: freshData(job.site) };
+  const blob = await downloadFileBlob(found.id);   // 取得失敗はここで throw
+  try {
+    const data = JSON.parse(await blob.text());
+    if (!data || !Array.isArray(data.spots)) throw new Error("bad");
+    return { fileId: found.id, data };
+  } catch (e) {
+    return { fileId: found.id, data: freshData(job.site) };
+  }
+}
+
+/**
+ * 台帳を保存する → fileId
+ * 保存の直前に必ずDriveの最新を取り直して合流（マージ）する。
+ * → 2端末が同時に使っても、お互いの定点・撮影結果を消し合わない。
+ * → 「無いと思って2個作る」事故も防ぐ（作成前にもう一度探す）。
+ */
+async function saveSpots(job, fileId, data) {
+  data.meta.generatedAt = new Date().toISOString();
+  const found = await findJsonInFolder(job.id, SPOTS_FILE_NAME);
+  if (found) {
+    try {
+      const remote = JSON.parse(await (await downloadFileBlob(found.id)).text());
+      if (remote && Array.isArray(remote.spots)) {
+        data.spots = mergeSpots(remote.spots, data.spots);
+      }
+    } catch (e) { /* 相手側が壊れていたら自分のデータで上書き */ }
+    await updateSpotsJson(found.id, data, job.id);
+    return found.id;
+  }
+  return createJsonFile(job.id, SPOTS_FILE_NAME, data);
+}
+
+/**
+ * 台帳の合流。コードごとに突き合わせて、写真ID（before/after）は
+ * 「入っている方を残す（両方あれば自分を優先）」。相手にしか無い定点も残す。
+ */
+function mergeSpots(remoteSpots, localSpots) {
+  const map = new Map();
+  for (const r of remoteSpots) map.set(r.code, { ...r });
+  for (const l of localSpots) {
+    const r = map.get(l.code);
+    if (!r) { map.set(l.code, { ...l }); continue; }
+    map.set(l.code, {
+      ...r,
+      ...l,
+      beforeFileId: l.beforeFileId || r.beforeFileId,
+      afterFileId: l.afterFileId || r.afterFileId,
+      orientation: l.orientation || r.orientation
+    });
+  }
+  return [...map.values()].sort((a, b) => String(a.code).localeCompare(String(b.code)));
+}
+
+/** 次の定点コード。"A01"〜"A99"（既存の最大値+1） */
+function nextSpotCode(data) {
+  const max = (data.spots || []).reduce((m, s) => {
+    const match = /^A(\d+)$/.exec(s.code || "");
+    return match ? Math.max(m, parseInt(match[1], 10)) : m;
+  }, 0);
+  return "A" + String(max + 1).padStart(2, "0");
+}
+
+/** 定点を追加して返す（name必須・how任意） */
+function addSpot(data, { name, how }) {
+  const spot = {
+    code: nextSpotCode(data),
+    name: String(name || "").trim() || "名称なし",
+    how: String(how || "").trim(),
+    orientation: null,        // before撮影時に自動判定して入れる
+    beforeFileId: null,
+    afterFileId: null
+  };
+  data.spots.push(spot);
+  return spot;
+}
+
+/** 撮影結果を台帳に反映する（kind: "before" | "after"） */
+function setSpotPhoto(data, code, kind, fileId, orientation) {
+  const spot = (data.spots || []).find((s) => s.code === code);
+  if (!spot) return;
+  if (kind === "before") {
+    spot.beforeFileId = fileId;
+    if (orientation) spot.orientation = orientation;
+  } else {
+    spot.afterFileId = fileId;
+  }
+}
+
+/** 定点の進み具合 → "none"（未）| "before"（before済）| "done"（両方済） */
+function spotStatus(spot) {
+  if (spot.beforeFileId && spot.afterFileId) return "done";
+  if (spot.beforeFileId) return "before";
+  return "none";
+}
+
+return { loadSpots, saveSpots, nextSpotCode, addSpot, setSpotPhoto, spotStatus, SPOTS_FILE_NAME };
+})();
+
+const __npu_camera = (() => {
+
+// camera.js — 定点撮影用のライブカメラ制御
+
+/** 実行環境を確認し、背面カメラを利用できる可能性があるか返す。 */
+async function isLiveAvailable() {
+  try {
+    return Boolean(
+      typeof navigator !== "undefined"
+      && navigator.mediaDevices
+      && typeof navigator.mediaDevices.getUserMedia === "function"
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/** video要素と写真の向きを受け取り、背面カメラを開始して停止用オブジェクトを返す。 */
+async function startLive(videoEl, orientation) {
+  if (!videoEl || !(await isLiveAvailable())) return null;
+
+  let stream = null;
+  try {
+    const landscape = orientation === "landscape";
+    const portrait = orientation === "portrait";
+    const video = {
+      facingMode: { ideal: "environment" },
+      ...(landscape ? { width: { ideal: 1920 }, height: { ideal: 1080 } } : {}),
+      ...(portrait ? { width: { ideal: 1080 }, height: { ideal: 1920 } } : {})
+    };
+    stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    videoEl.srcObject = stream;
+    videoEl.setAttribute("playsinline", "");
+    videoEl.muted = true;
+    await videoEl.play();
+
+    let stopped = false;
+    return {
+      stop() {
+        if (stopped) return;
+        stopped = true;
+        stream.getTracks().forEach((track) => track.stop());
+        if (videoEl.srcObject === stream) videoEl.srcObject = null;
+      }
+    };
+  } catch (_) {
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+    try { videoEl.srcObject = null; } catch (_) { /* 停止済みなら何もしない。 */ }
+    return null;
+  }
+}
+
+/** 再生中のvideo要素を受け取り、現在のフレームをJPEG Blobとして返す。 */
+async function captureFrame(videoEl) {
+  try {
+    const width = Number(videoEl && videoEl.videoWidth);
+    const height = Number(videoEl && videoEl.videoHeight);
+    if (!width || !height) return null;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) return null;
+    context.drawImage(videoEl, 0, 0, width, height);
+
+    return await new Promise((resolve) => {
+      canvas.toBlob((blob) => resolve(blob || null), "image/jpeg", 0.92);
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+return { isLiveAvailable, startLive, captureFrame };
 })();
 
 const __npu_uploader = (() => {
 const { CONFIG } = __npu_config;
-const { listFileNames, startResumable, sendChunk, probeResumable, folderWebUrl } = __npu_drive;
+const { listFileNames, startResumable, sendChunk, probeResumable, folderWebUrl, findJsonInFolder } = __npu_drive;
 const { maxSequence, buildFileName } = __npu_naming;
 const { getDeviceTag } = __npu_storage;
 // uploader.js — アップロードの司令塔（担当：Claude）
@@ -1556,6 +1923,63 @@ async function uploadAll(photos, target, hooks) {
   });
 }
 
+/**
+ * 定点写真など「1枚だけ・名前指定」のアップロード → { fileId, fileName }
+ * 同名が既にあれば _2, _3 …と枝番を付けて絶対に上書きしない。
+ * 電波断に強いよう、通常アップと同じチャンク方式＋3回再試行。
+ */
+async function uploadSingle(blob, folderId, fileName, onProgress) {
+  const existing = await listFileNames(folderId);
+  let finalName = fileName;
+  if (existing.includes(finalName)) {
+    const dot = fileName.lastIndexOf(".");
+    const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+    const ext = dot > 0 ? fileName.slice(dot) : "";
+    let n = 2;
+    while (existing.includes(`${base}_${n}${ext}`)) n++;
+    finalName = `${base}_${n}${ext}`;
+  }
+
+  await acquireWakeLock();
+  try {
+    // セッションは1回だけ作り、再試行では「どこまで届いたか」を照会して続きから送る。
+    // → 完了の応答だけ落ちた場合も、同じ写真を二重に作らない
+    let sessionUrl = null;
+    let lastError = null;
+    for (let attempt = 0; attempt <= CONFIG.RETRY_MAX; attempt++) {
+      try {
+        let offset = 0;
+        if (sessionUrl) {
+          const next = await probeResumable(sessionUrl, blob.size);
+          if (next === -1) {
+            // 実は届き切っていた。IDを名前で引き直して返す
+            const found = await findJsonInFolder(folderId, finalName);
+            return { fileId: found ? found.id : null, fileName: finalName };
+          }
+          offset = next;
+        } else {
+          ({ sessionUrl } = await startResumable(folderId, finalName, blob));
+        }
+        while (offset < blob.size) {
+          const r = await sendChunk(sessionUrl, blob, offset);
+          if (!r.done && r.nextOffset <= offset) throw new Error("送信が進みませんでした");
+          offset = r.nextOffset;
+          if (onProgress) onProgress(Math.round((offset / blob.size) * 100));
+          if (r.done) return { fileId: r.fileId, fileName: finalName };
+        }
+      } catch (e) {
+        if (e.message === "auth") throw e;
+        if (String(e.message).includes("再開の確認")) sessionUrl = null; // セッション自体が死んでいたら作り直し
+        lastError = e;
+        if (attempt < CONFIG.RETRY_MAX) await sleep(1000 * Math.pow(2, attempt));
+      }
+    }
+    throw lastError || new Error("アップロードに失敗しました");
+  } finally {
+    releaseWakeLock();
+  }
+}
+
 /** 失敗した写真だけもう一度 */
 async function retryFailed(hooks) {
   if (!lastPhotos || !lastTarget) return;
@@ -1564,7 +1988,7 @@ async function retryFailed(hooks) {
   await uploadAll(lastPhotos, lastTarget, hooks);
 }
 
-return { uploadAll, retryFailed };
+return { uploadAll, uploadSingle, retryFailed };
 })();
 
 const __npu_ui_login = (() => {
@@ -1697,6 +2121,7 @@ function mount(root, actions) {
     }
     else if (day) actions.selectDayFolder(section._daysById.get(day.dataset.dayId));
     else if (event.target.closest('[data-action="create-day"]')) actions.createTodayDayFolder();
+    else if (event.target.closest('[data-action="open-spots"]')) actions.openSpots();
     else if (event.target.closest('[data-action="back"]')) actions.back();
   });
   root.appendChild(section);
@@ -1722,6 +2147,8 @@ function render(root, state, actions) {
       ${stepButton("pre", "事前資料")}${stepButton("before", "着工前")}${stepButton("during", "施工中")}${stepButton("done", "完了")}${stepButton("sns", "SNS素材")}
     </div>
     ${showDays ? `<div class="screen__head"><h2 class="section-title">施工中の日付を選ぶ</h2>${days.length ? `<div class="list-stack">${days.map(dayRow).join("")}</div>` : '<p class="empty">施工中の日付フォルダはまだありません。</p>'}<button type="button" class="btn btn--primary btn--big" data-action="create-day">今日の日付で新規作成</button></div>` : ""}
+    <h2 class="section-title">SNS・HP素材づくり</h2>
+    <button type="button" class="btn btn--big spots-entry" data-action="open-spots">📐 定点ビフォーアフター</button>
     <button type="button" class="btn btn--ghost" data-action="back">戻る</button>`;
   renderToast(state.toast);
 }
@@ -1864,27 +2291,351 @@ function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (cha
 return { mount, render };
 })();
 
+const __npu_ui_spots = (() => {
+
+// ui-spots.js — 定点ビフォーアフターの一覧と追加画面
+
+/** 画面の器を1回だけ作り、定点選択・追加・戻る操作を登録する。 */
+function mount(root, actions) {
+  if (root.querySelector('[data-screen="spots"]')) return;
+  const section = document.createElement("section");
+  section.className = "screen";
+  section.dataset.screen = "spots";
+  section.addEventListener("click", (event) => {
+    const spot = event.target.closest("[data-spot-code]");
+    if (spot) {
+      actions.shootSpot(spot.dataset.spotCode);
+      return;
+    }
+    if (event.target.closest('[data-action="show-add-spot"]')) {
+      const panel = section.querySelector('[data-role="add-spot"]');
+      panel.hidden = false;
+      panel.querySelector('[data-field="spot-name"]').focus();
+    } else if (event.target.closest('[data-action="cancel-add-spot"]')) {
+      section.querySelector('[data-role="add-spot"]').hidden = true;
+    } else if (event.target.closest('[data-action="add-spot"]')) {
+      submitSpot(section, actions);
+    } else if (event.target.closest('[data-action="back"]')) {
+      actions.back();
+    }
+  });
+  root.appendChild(section);
+}
+
+/** 定点データと案件を受け取り、撮影状況のチェックリストを描く。 */
+function render(root, state, actions) {
+  mount(root, actions);
+  root.querySelectorAll(".screen").forEach((screen) => screen.classList.remove("screen--active"));
+  const section = root.querySelector('[data-screen="spots"]');
+  section.classList.add("screen--active");
+  const data = state.spotsData || {};
+  const spots = Array.isArray(data.spots) ? data.spots : [];
+  const site = (state.job && (state.job.site || state.job.folderName)) || data.site || "案件未選択";
+  section.innerHTML = `
+    <div class="screen__head"><h1>定点写真</h1><p class="pathbar">${escapeHtml(site)} / 07_SNS_HP素材 / 01_定点ビフォーアフター</p></div>
+    <div class="list-stack spots__list">${spots.length ? spots.map(spotRow).join("") : (state.spotsBusy ? '<p class="empty">読み込み中…</p>' : '<p class="empty">定点がまだありません。</p>')}</div>
+    <button type="button" class="btn btn--primary btn--big" data-action="show-add-spot">＋ 定点を追加</button>
+    <div class="spots__add" data-role="add-spot" hidden>
+      <label class="spots__label">場所の名前<input class="spots__input" data-field="spot-name" type="text" maxlength="80" required placeholder="例：和室A（押入側）"></label>
+      <label class="spots__label">撮り方メモ（任意）<input class="spots__input" data-field="spot-how" type="text" maxlength="120" placeholder="例：入口角に立つ"></label>
+      <p class="spots__error status-error" data-role="add-error" role="alert" hidden>場所の名前を入力してください。</p>
+      <button type="button" class="btn btn--primary btn--big" data-action="add-spot">追加する</button>
+      <button type="button" class="btn btn--ghost" data-action="cancel-add-spot">キャンセル</button>
+    </div>
+    <button type="button" class="btn btn--ghost" data-action="back">戻る</button>`;
+  renderToast(state.toast);
+}
+
+/** 定点情報を受け取り、撮影状況を示す一覧行のHTMLを返す。 */
+function spotRow(spot) {
+  const status = getStatus(spot);
+  const label = status === "done" ? "✅ 済" : status === "before" ? "📷 before済" : "⬜ 未";
+  const next = status === "none" ? "beforeを撮る" : status === "before" ? "afterを撮る" : "撮影済み";
+  return `<button type="button" class="list-row spots__row" data-spot-code="${escapeAttr(spot.code)}"><span class="row-main"><strong>${escapeHtml(spot.code || "--")} ${escapeHtml(spot.name || "名称なし")}</strong>${spot.how ? `<small>${escapeHtml(spot.how)}</small>` : ""}<small>${escapeHtml(next)}</small></span><span class="spots__status">${label}</span></button>`;
+}
+
+/** 定点情報を受け取り、未撮影・before済み・撮影完了の状態を返す。 */
+function getStatus(spot) {
+  if (spot && spot.beforeFileId && spot.afterFileId) return "done";
+  if (spot && spot.beforeFileId) return "before";
+  return "none";
+}
+
+/** 追加欄の入力を検証し、名前と撮り方メモを追加処理へ渡す。 */
+function submitSpot(section, actions) {
+  const nameInput = section.querySelector('[data-field="spot-name"]');
+  const howInput = section.querySelector('[data-field="spot-how"]');
+  const error = section.querySelector('[data-role="add-error"]');
+  const name = nameInput.value.trim();
+  if (!name) {
+    error.hidden = false;
+    nameInput.focus();
+    return;
+  }
+  error.hidden = true;
+  actions.addSpot({ name, how: howInput.value.trim() });
+}
+
+/** 通知文を受け取り、共通の通知欄を更新する。 */
+function renderToast(message) { const root = document.getElementById("toast-root"); if (root) root.innerHTML = message ? `<div class="toast" role="status">${escapeHtml(message)}</div>` : ""; }
+/** 任意の値を受け取り、HTML表示用の安全な文字列を返す。 */
+function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]); }
+/** 任意の値を受け取り、HTML属性用の安全な文字列を返す。 */
+function escapeAttr(value) { return escapeHtml(value); }
+
+return { mount, render };
+})();
+
+const __npu_ui_shoot = (() => {
+const { captureFrame, startLive } = __npu_camera;
+// ui-shoot.js — 定点写真のライブ撮影と撮影後照合画面
+
+/** 画面の器を1回だけ作り、ライブ撮影・通常撮影・確定操作を登録する。 */
+function mount(root, actions) {
+  if (root.querySelector('[data-screen="shoot"]')) return;
+  const section = document.createElement("section");
+  section.className = "screen";
+  section.dataset.screen = "shoot";
+  section.addEventListener("click", async (event) => {
+    if (event.target.closest('[data-action="start-live"]')) await beginLive(section);
+    else if (event.target.closest('[data-action="shutter"]')) await shootLive(section, actions);
+    else if (event.target.closest('[data-action="open-camera"]')) section.querySelector('[data-input="shoot-camera"]').click();
+    else if (event.target.closest('[data-action="confirm-photo"]')) confirmPhoto(section, actions);
+    else if (event.target.closest('[data-action="retake"]')) retake(section);
+    else if (event.target.closest('[data-action="cancel"]')) {
+      cleanUp(section);
+      actions.cancelShoot();
+    }
+  });
+  section.addEventListener("change", (event) => {
+    if (!event.target.matches('[data-input="shoot-camera"]')) return;
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (file) showPhotoPreview(section, file);
+  });
+  section.addEventListener("input", (event) => {
+    if (!event.target.matches('[data-role="overlay-opacity"]')) return;
+    updateOverlay(section, event.target.value);
+  });
+  const observer = new MutationObserver(() => {
+    if (!section.classList.contains("screen--active")) cleanUp(section);
+  });
+  observer.observe(section, { attributes: true, attributeFilter: ["class"] });
+  root.appendChild(section);
+}
+
+/** 撮影状態を受け取り、方式Aまたは方式Bの撮影画面を描く。 */
+function render(root, state, actions) {
+  mount(root, actions);
+  const section = root.querySelector('[data-screen="shoot"]');
+  cleanUp(section);
+  root.querySelectorAll(".screen").forEach((screen) => screen.classList.remove("screen--active"));
+  section.classList.add("screen--active");
+  const shoot = state.shoot || {};
+  const mode = shoot.mode === "live" ? "live" : "photo";
+  section._beforeUrl = shoot.beforeUrl || null;
+  section._orientation = shoot.orientation || null;
+  section.innerHTML = `
+    <div class="screen__head"><h1>${escapeHtml(shoot.code || "定点")} ${shoot.kind === "after" ? "after" : "before"}を撮る</h1><p class="muted">同じ位置と向きで撮影してください。</p></div>
+    ${mode === "live" ? liveView(shoot) : photoView(shoot)}
+    <button type="button" class="btn btn--ghost" data-action="cancel">中止する</button>`;
+  updateOverlay(section, 40);
+  renderToast(state.toast);
+}
+
+/** 撮影状態を受け取り、方式Aのライブ撮影領域を返す。 */
+function liveView(shoot) {
+  return `
+    <div class="shoot__stage">
+      <video class="shoot__media" data-role="live-video" autoplay muted playsinline></video>
+      ${overlayImage(shoot.beforeUrl)}
+    </div>
+    ${opacityControl(shoot.beforeUrl)}
+    <button type="button" class="btn btn--primary btn--big" data-action="start-live">カメラを起動</button>
+    <button type="button" class="btn btn--primary btn--big shoot__shutter" data-action="shutter" hidden>撮影する</button>`;
+}
+
+/** 撮影状態を受け取り、方式Bのファイル撮影・確認領域を返す。 */
+function photoView(shoot) {
+  return `
+    <input class="file-input" data-input="shoot-camera" type="file" accept="image/*" capture="environment" aria-hidden="true" tabindex="-1">
+    <div class="shoot__stage" data-role="photo-stage" hidden>
+      <img class="shoot__media" data-role="photo-preview" alt="撮影した写真">
+      ${overlayImage(shoot.beforeUrl)}
+    </div>
+    <div data-role="photo-controls" hidden>
+      ${opacityControl(shoot.beforeUrl)}
+      <button type="button" class="btn btn--primary btn--big" data-action="confirm-photo">この写真でOK</button>
+      <button type="button" class="btn btn--ghost" data-action="retake">撮り直す</button>
+    </div>
+    <button type="button" class="btn btn--primary btn--big" data-action="open-camera">カメラで撮る</button>`;
+}
+
+/** before画像URLを受け取り、位置合わせ用の重ね画像を返す。 */
+function overlayImage(beforeUrl) {
+  return beforeUrl ? `<img class="shoot__overlay" data-role="before-overlay" src="${escapeAttr(beforeUrl)}" alt="before写真">` : "";
+}
+
+/** before画像URLを受け取り、透明度スライダーを返す。 */
+function opacityControl(beforeUrl) {
+  return beforeUrl ? `<label class="shoot__opacity">beforeの濃さ <input data-role="overlay-opacity" type="range" min="0" max="70" value="40" aria-label="before写真の濃さ"></label>` : "";
+}
+
+/** ライブ開始ボタンからカメラを起動し、失敗時は方式Bへ静かに切り替える。 */
+async function beginLive(section) {
+  const button = section.querySelector('[data-action="start-live"]');
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  const operationId = section._operationId;
+  const session = await startLive(section.querySelector('[data-role="live-video"]'), section._orientation);
+  if (operationId !== section._operationId || !section.classList.contains("screen--active")) {
+    if (session) session.stop();
+    return;
+  }
+  if (!session) {
+    switchToPhoto(section);
+    return;
+  }
+  section._cameraSession = session;
+  button.hidden = true;
+  section.querySelector('[data-action="shutter"]').hidden = false;
+}
+
+/** ライブ映像をJPEG化し、確定処理へ一度だけ渡す。 */
+async function shootLive(section, actions) {
+  const button = section.querySelector('[data-action="shutter"]');
+  if (!button || button.disabled || section._submitting) return;
+  button.disabled = true;
+  section._submitting = true;
+  const operationId = section._operationId;
+  const blob = await captureFrame(section.querySelector('[data-role="live-video"]'));
+  if (operationId !== section._operationId || !section.classList.contains("screen--active")) return;
+  if (!blob) {
+    section._submitting = false;
+    stopCamera(section);
+    switchToPhoto(section);
+    return;
+  }
+  stopCamera(section);
+  actions.spotCaptured(blob);
+}
+
+/** 方式Aの領域を方式Bへ置き換え、カメラinputを開く。 */
+function switchToPhoto(section) {
+  stopCamera(section);
+  const beforeUrl = section._beforeUrl;
+  const controls = section.querySelector('[data-action="cancel"]');
+  section.querySelector('[data-role="overlay-opacity"]')?.closest(".shoot__opacity")?.remove();
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = photoView({ beforeUrl });
+  while (wrapper.firstChild) section.insertBefore(wrapper.firstChild, controls);
+  section.querySelector('[data-role="live-video"]')?.closest(".shoot__stage")?.remove();
+  section.querySelector('[data-action="start-live"]')?.remove();
+  section.querySelector('[data-action="shutter"]')?.remove();
+  section.querySelector('[data-action="open-camera"]').click();
+}
+
+/** カメラinputのBlobを受け取り、撮影後の重ね合わせ確認を表示する。 */
+function showPhotoPreview(section, blob) {
+  releasePreview(section);
+  section._pendingBlob = blob;
+  section._previewUrl = URL.createObjectURL(blob);
+  section._submitting = false;
+  section.querySelector('[data-role="photo-preview"]').src = section._previewUrl;
+  section.querySelector('[data-role="photo-stage"]').hidden = false;
+  section.querySelector('[data-role="photo-controls"]').hidden = false;
+  section.querySelector('[data-action="open-camera"]').hidden = true;
+  updateOverlay(section, 40);
+}
+
+/** 確認中のBlobを確定処理へ一度だけ渡す。 */
+function confirmPhoto(section, actions) {
+  const button = section.querySelector('[data-action="confirm-photo"]');
+  if (!button || button.disabled || section._submitting || !section._pendingBlob) return;
+  button.disabled = true;
+  section._submitting = true;
+  const blob = section._pendingBlob;
+  releasePreview(section);
+  actions.spotCaptured(blob);
+}
+
+/** 現在の確認画像を破棄し、再び端末カメラを開く。 */
+function retake(section) {
+  if (section._submitting) return;
+  releasePreview(section);
+  section.querySelector('[data-role="photo-stage"]').hidden = true;
+  section.querySelector('[data-role="photo-controls"]').hidden = true;
+  const open = section.querySelector('[data-action="open-camera"]');
+  open.hidden = false;
+  open.click();
+}
+
+/** スライダー値を受け取り、before重ね画像の透明度を更新する。 */
+function updateOverlay(section, value) {
+  const opacity = Math.max(0, Math.min(70, Number(value) || 0)) / 100;
+  section.querySelectorAll('[data-role="before-overlay"]').forEach((image) => { image.style.opacity = String(opacity); });
+}
+
+/** 動作中のカメラを停止し、videoとの接続を解放する。 */
+function stopCamera(section) {
+  if (section._cameraSession) section._cameraSession.stop();
+  section._cameraSession = null;
+}
+
+/** 撮影後プレビューのObjectURLとBlob参照を解放する。 */
+function releasePreview(section) {
+  if (section._previewUrl) URL.revokeObjectURL(section._previewUrl);
+  section._previewUrl = null;
+  section._pendingBlob = null;
+}
+
+/** 撮影画面のカメラ・プレビュー・連打防止状態をすべて片付ける。 */
+function cleanUp(section) {
+  section._operationId = Number(section._operationId || 0) + 1;
+  stopCamera(section);
+  releasePreview(section);
+  section._submitting = false;
+}
+
+/** 通知文を受け取り、共通の通知欄を更新する。 */
+function renderToast(message) { const root = document.getElementById("toast-root"); if (root) root.innerHTML = message ? `<div class="toast" role="status">${escapeHtml(message)}</div>` : ""; }
+/** 任意の値を受け取り、HTML表示用の安全な文字列を返す。 */
+function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]); }
+/** 任意の値を受け取り、HTML属性用の安全な文字列を返す。 */
+function escapeAttr(value) { return escapeHtml(value); }
+
+return { mount, render };
+})();
+
 const __npu_main = (() => {
 const storage = __npu_storage;
 const state = __npu_state;
 const auth = __npu_auth;
 const drive = __npu_drive;
 const uploader = __npu_uploader;
+const spots = __npu_spots;
 const uiLogin = __npu_ui_login;
 const uiJobs = __npu_ui_jobs;
 const uiStep = __npu_ui_step;
 const uiPhotos = __npu_ui_photos;
 const uiProgress = __npu_ui_progress;
+const uiSpots = __npu_ui_spots;
+const uiShoot = __npu_ui_shoot;
 const { CONFIG, STEPS, DEVICE_OWNERS } = __npu_config;
-const { nextDayNumber, dayFolderName } = __npu_naming;
+const { nextDayNumber, dayFolderName, sanitize } = __npu_naming;
+const { toUploadJpeg } = __npu_media;
+const { isLiveAvailable } = __npu_camera;
 // main.js — 起動して全部つなぐ（担当：Claude）
+
 
 const SCREENS = {
   login: uiLogin,
   jobs: uiJobs,
   step: uiStep,
   photos: uiPhotos,
-  progress: uiProgress
+  progress: uiProgress,
+  spots: uiSpots,
+  shoot: uiShoot
 };
 
 // ---- uploaderのhook（進捗をstateへ流す） ----
@@ -2026,14 +2777,132 @@ const actions = {
 
   back() {
     const s = state.getState();
+    if (s.uploading) return;
+    if (s.screen === "shoot") { state.setShoot(null); state.goto("spots"); return; }
+    if (s.screen === "spots") { state.goto("step"); return; }
     const order = ["login", "jobs", "step", "photos", "progress"];
     const i = order.indexOf(s.screen);
-    if (i > 0 && !s.uploading) state.goto(order[i - 1]);
+    if (i > 0) state.goto(order[i - 1]);
   },
 
   getRecentJobs: () => storage.getRecentJobs(),
   getDeviceOwners: () => DEVICE_OWNERS,
-  setDeviceTag: (tag) => storage.setDeviceTag(tag)
+  setDeviceTag: (tag) => storage.setDeviceTag(tag),
+
+  // ---- Phase 2：定点ビフォーアフター ----
+
+  /** 工程画面の「📐 定点ビフォーアフター」から */
+  async openSpots() {
+    const s = state.getState();
+    if (!s.job) return;
+    state.setSpotsBusy(true);
+    state.goto("spots");
+    try {
+      const loaded = await spots.loadSpots(s.job);
+      state.setSpots(loaded.fileId, loaded.data);
+    } catch (e) {
+      showError(e);
+      state.goto("step");
+    } finally {
+      state.setSpotsBusy(false);
+    }
+  },
+
+  /** 定点を追加 → そのままbefore撮影へ */
+  async addSpot(payload) {
+    const s = state.getState();
+    if (!s.spotsData || s.spotsBusy) return;
+    state.setSpotsBusy(true);
+    try {
+      // クローン上で追加し、Drive保存が成功してから画面に反映する（失敗時のズレ防止）
+      const draft = structuredClone(s.spotsData);
+      const spot = spots.addSpot(draft, payload);
+      const fileId = await spots.saveSpots(s.job, s.spotsFileId, draft);
+      state.setSpots(fileId, draft);
+      state.setSpotsBusy(false);
+      await actions.shootSpot(spot.code);
+    } catch (e) {
+      showError(e);
+      state.setSpotsBusy(false);
+    }
+  },
+
+  /** 定点をタップ → beforeが無ければbefore撮影、あればafter撮影（beforeを重ねる） */
+  async shootSpot(code) {
+    const s = state.getState();
+    if (s.spotsBusy || !s.spotsData) return;   // 読み込み中の誤タップを無効化
+    const spot = s.spotsData.spots.find((x) => x.code === code);
+    if (!spot) return;
+    // 両方撮影済みの定点は、確認してからafterの撮り直しに入る（誤タップ防止。古い写真は消さない）
+    if (spot.beforeFileId && spot.afterFileId) {
+      if (!confirm(`${spot.code}（${spot.name}）は撮影済みです。afterを撮り直しますか？`)) return;
+    }
+    const kind = spot.beforeFileId ? "after" : "before";
+    let beforeUrl = null;
+    if (kind === "after") {
+      state.setSpotsBusy(true);
+      try {
+        const blob = await drive.downloadFileBlob(spot.beforeFileId);
+        beforeUrl = URL.createObjectURL(blob);
+      } catch (e) {
+        showError(e);
+        state.setSpotsBusy(false);
+        return;
+      }
+      state.setSpotsBusy(false);
+    }
+    // afterはbeforeを重ねるライブ合成（方式A）を優先。使えない端末は撮影後照合（方式B）
+    const live = kind === "after" && (await isLiveAvailable());
+    state.setShoot({ code, kind, beforeUrl, orientation: spot.orientation, mode: live ? "live" : "photo" });
+    state.goto("shoot");
+  },
+
+  /** 撮影確定：変換 → アップ → 台帳更新 → 一覧へ */
+  async spotCaptured(blob) {
+    const s = state.getState();
+    const shoot = s.shoot;
+    if (!shoot || s.spotsBusy) return;
+    state.setSpotsBusy(true);
+    try {
+      // 回転補正・縮小・GPS除去（方式Bのカメラ写真はEXIF付きで来るため必ず通す）
+      const conv = await toUploadJpeg(blob, { maxLongEdge: CONFIG.MAX_LONG_EDGE, quality: CONFIG.JPEG_QUALITY });
+      const upBlob = conv.converted ? conv.blob : blob;
+      const orientation = conv.converted ? (conv.width >= conv.height ? "landscape" : "portrait") : null;
+      // 変換できなかった写真は中身に合った拡張子で保存する（.jpgと偽らない）
+      let ext = "jpg";
+      if (!conv.converted) {
+        const t = (blob.type || "").toLowerCase();
+        ext = t.includes("heic") || t.includes("heif") ? "heic" : (t.split("/")[1] || "jpg");
+        state.showToast("変換できなかったため元の形式のまま保存します");
+      }
+
+      // 保存先：07_SNS_HP素材/01_定点ビフォーアフター（無ければ作る）
+      const p1 = await drive.ensureFolder(s.job.id, "07_SNS_HP素材");
+      const p2 = await drive.ensureFolder(p1, "01_定点ビフォーアフター");
+
+      const ymd = todayLocalISO().replace(/-/g, "");
+      const name = `${ymd}_${sanitize(s.job.site)}_${shoot.code}_${shoot.kind}.${ext}`;
+      const { fileId } = await uploader.uploadSingle(upBlob, p2, name, null);
+
+      // クローン上で台帳を更新し、Drive保存が成功してから画面に反映
+      const draft = structuredClone(s.spotsData);
+      spots.setSpotPhoto(draft, shoot.code, shoot.kind, fileId, orientation);
+      const fid = await spots.saveSpots(s.job, s.spotsFileId, draft);
+      state.setSpots(fid, draft);
+      state.setShoot(null);
+      state.goto("spots");
+      state.showToast(`✅ ${shoot.code} の ${shoot.kind} を保存しました`);
+    } catch (e) {
+      showError(e);
+    } finally {
+      state.setSpotsBusy(false);
+    }
+  },
+
+  cancelShoot() {
+    state.setShoot(null);
+    state.goto("spots");
+  }
 };
 
 // stateモジュール内の photos 実体を取り出す小さな橋渡し

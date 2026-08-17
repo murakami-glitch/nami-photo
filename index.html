@@ -353,13 +353,13 @@ input[type="search"]::placeholder { color: var(--c-ink-weak); }
 .shoot__media {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
-  object-fit: contain;      /* 重ね合わせの位置が映像とズレないよう両方contain */
+  object-fit: cover;        /* 枠はbefore写真の縦横に合わせるので、coverでピッタリ埋めて位置を合わせる */
   display: block;
 }
 .shoot__overlay {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   pointer-events: none;
 }
 .shoot__opacity {
@@ -370,6 +370,38 @@ input[type="search"]::placeholder { color: var(--c-ink-weak); }
 .shoot__opacity input[type="range"] { flex: 1; accent-color: var(--c-primary); min-height: 44px; }
 .shoot__shutter { background: var(--c-navy); box-shadow: 0 2px 6px rgba(22, 35, 61, 0.35); }
 .shoot__shutter:active { background: var(--c-navy-soft); }
+
+/* 撮影済みペアの閲覧パネル */
+.spots__viewer {
+  position: fixed; inset: 0; z-index: 150;
+  background: rgba(22, 35, 61, 0.55);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 18px 16px calc(env(safe-area-inset-bottom, 0px) + 18px);
+  overflow-y: auto;
+}
+.spots__viewer-card {
+  width: 100%; max-width: 420px;
+  background: var(--c-card);
+  border-radius: 14px;
+  padding: 16px 16px 18px;
+  box-shadow: 0 12px 40px rgba(22, 35, 61, 0.4);
+}
+.spots__viewer-title {
+  font-size: 16px; font-weight: 800; color: var(--c-navy);
+  text-align: center; margin-bottom: 10px;
+}
+.spots__figure { margin: 0 0 10px; }
+.spots__figure figcaption {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  color: var(--c-ink-weak); margin-bottom: 3px; text-transform: uppercase;
+}
+.spots__figure img {
+  display: block; width: 100%; max-height: 34vh;
+  object-fit: contain;
+  background: #0d1524;
+  border-radius: 8px;
+}
 
 </style>
 </head>
@@ -716,13 +748,16 @@ async function readOrientation(file) {
 }
 
 // Blobを描画可能な画像へ変換し、解放関数と自動回転済みかを返す。
+// 【重要】必ず「自動回転済み（from-image）」でデコードする。
+// "none"＋手動回転の方式は、ブラウザが勝手に回すバージョンだと二重回転になり
+// 縦写真が横向きに保存されるバグを起こした（実機で発生）。
 async function decodeImage(blob) {
   if (typeof createImageBitmap === "function") {
     try {
-      const bitmap = await createImageBitmap(blob, { imageOrientation: "none" });
-      return { image: bitmap, width: bitmap.width, height: bitmap.height, oriented: false, release: () => bitmap.close() };
+      const bitmap = await createImageBitmap(blob, { imageOrientation: "from-image" });
+      return { image: bitmap, width: bitmap.width, height: bitmap.height, oriented: true, release: () => bitmap.close() };
     } catch (_error) {
-      // img方式へフォールバックする。
+      // img方式へフォールバックする（imgも自動回転される）。
     }
   }
   if (typeof document === "undefined" || typeof URL === "undefined") throw new Error("画像を開けません");
@@ -760,33 +795,20 @@ async function toUploadJpeg(file, opts = {}) {
   let decoded = null;
   let canvas = null;
   try {
+    // decodeImage が必ず正しい向きで返すので、ここでは縮小と再エンコードだけ行う
     decoded = await decodeImage(file);
-    const orientation = decoded.oriented ? 1 : await readOrientation(file);
-    const swapped = orientation >= 5 && orientation <= 8;
-    const displayWidth = swapped ? decoded.height : decoded.width;
-    const displayHeight = swapped ? decoded.width : decoded.height;
     const limit = Number(opts.maxLongEdge);
     const scale = Number.isFinite(limit) && limit > 0
-      ? Math.min(1, limit / Math.max(displayWidth, displayHeight))
+      ? Math.min(1, limit / Math.max(decoded.width, decoded.height))
       : 1;
-    const width = Math.max(1, Math.round(displayWidth * scale));
-    const height = Math.max(1, Math.round(displayHeight * scale));
+    const width = Math.max(1, Math.round(decoded.width * scale));
+    const height = Math.max(1, Math.round(decoded.height * scale));
     canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) throw new Error("画像変換を開始できません");
-    context.scale(scale, scale);
-    const w = decoded.width;
-    const h = decoded.height;
-    const transforms = {
-      1: [1, 0, 0, 1, 0, 0], 2: [-1, 0, 0, 1, w, 0],
-      3: [-1, 0, 0, -1, w, h], 4: [1, 0, 0, -1, 0, h],
-      5: [0, 1, 1, 0, 0, 0], 6: [0, 1, -1, 0, h, 0],
-      7: [0, -1, -1, 0, h, w], 8: [0, -1, 1, 0, 0, w]
-    };
-    context.transform(...transforms[orientation]);
-    context.drawImage(decoded.image, 0, 0, w, h);
+    context.drawImage(decoded.image, 0, 0, width, height);
     const quality = Number.isFinite(Number(opts.quality)) ? Number(opts.quality) : 0.9;
     const blob = await canvasToJpeg(canvas, Math.max(0, Math.min(1, quality)));
     return { blob, width, height, converted: true };
@@ -873,7 +895,8 @@ const state = {
   spotsData: null,        // _定点.json の中身（{meta, site, spots[]}）
   spotsFileId: null,      // _定点.json のDriveファイルID（未作成ならnull）
   spotsBusy: false,       // 読み込み・保存中フラグ（連打防止）
-  shoot: null             // 撮影画面の状態 { code, kind, beforeUrl, mode } | null
+  shoot: null,            // 撮影画面の状態 { code, kind, beforeUrl, mode } | null
+  spotView: null          // 撮影済みペアの閲覧 { code, name, beforeUrl, afterUrl } | null
 };
 
 let seq = 0;              // 写真の一時ID採番
@@ -932,6 +955,16 @@ function setShoot(shoot) {
   emit();
 }
 
+/** 撮影済みペアの閲覧状態。差し替え時に前のObjectURLをrevokeする */
+function setSpotView(view) {
+  if (state.spotView) {
+    if (state.spotView.beforeUrl) URL.revokeObjectURL(state.spotView.beforeUrl);
+    if (state.spotView.afterUrl) URL.revokeObjectURL(state.spotView.afterUrl);
+  }
+  state.spotView = view;
+  emit();
+}
+
 function setEmail(email) {
   state.email = email;
   emit();
@@ -958,6 +991,11 @@ function setJob(job) {
   state.spotsFileId = null;
   if (state.shoot && state.shoot.beforeUrl) URL.revokeObjectURL(state.shoot.beforeUrl);
   state.shoot = null;
+  if (state.spotView) {
+    if (state.spotView.beforeUrl) URL.revokeObjectURL(state.spotView.beforeUrl);
+    if (state.spotView.afterUrl) URL.revokeObjectURL(state.spotView.afterUrl);
+    state.spotView = null;
+  }
   saveDraft();
   emit();
 }
@@ -1116,7 +1154,7 @@ function restoreDraft(draft) {
   emit();
 }
 
-return { getState, _photosRef, subscribe, goto, setSpots, setSpotsBusy, setShoot, setEmail, setJobs, setJob, setStep, setDayFolders, setTarget, setUploading, setOverall, patchPhoto, showToast, addPhotos, removePhoto, clearPhotos, releasePhotoData, loadDraft, clearDraft, restoreDraft };
+return { getState, _photosRef, subscribe, goto, setSpots, setSpotsBusy, setShoot, setSpotView, setEmail, setJobs, setJob, setStep, setDayFolders, setTarget, setUploading, setOverall, patchPhoto, showToast, addPhotos, removePhoto, clearPhotos, releasePhotoData, loadDraft, clearDraft, restoreDraft };
 })();
 
 const __npu_auth = (() => {
@@ -2302,9 +2340,22 @@ function mount(root, actions) {
   section.className = "screen";
   section.dataset.screen = "spots";
   section.addEventListener("click", (event) => {
+    const viewer = section.querySelector("[data-view-code]");
+    if (viewer) {
+      // 閲覧パネルが開いている間は、パネル内のボタンだけ受け付ける
+      const code = viewer.dataset.viewCode;
+      if (event.target.closest('[data-action="retake-before"]')) actions.retakeSpot(code, "before");
+      else if (event.target.closest('[data-action="retake-after"]')) actions.retakeSpot(code, "after");
+      else if (event.target.closest('[data-action="close-view"]')) actions.closeView();
+      return;
+    }
     const spot = event.target.closest("[data-spot-code]");
     if (spot) {
       actions.shootSpot(spot.dataset.spotCode);
+      return;
+    }
+    if (event.target.closest('[data-action="open-folder"]')) {
+      actions.openSpotsFolder();
       return;
     }
     if (event.target.closest('[data-action="show-add-spot"]')) {
@@ -2342,8 +2393,24 @@ function render(root, state, actions) {
       <button type="button" class="btn btn--primary btn--big" data-action="add-spot">追加する</button>
       <button type="button" class="btn btn--ghost" data-action="cancel-add-spot">キャンセル</button>
     </div>
-    <button type="button" class="btn btn--ghost" data-action="back">戻る</button>`;
+    <button type="button" class="btn btn--ghost" data-action="open-folder">📂 撮った写真をDriveで見る</button>
+    <button type="button" class="btn btn--ghost" data-action="back">戻る</button>
+    ${state.spotView ? viewerPanel(state.spotView) : ""}`;
   renderToast(state.toast);
+}
+
+/** 撮影済みペアの閲覧パネル（before/afterを縦に並べる） */
+function viewerPanel(view) {
+  return `<div class="spots__viewer" data-view-code="${escapeAttr(view.code)}">
+    <div class="spots__viewer-card">
+      <p class="spots__viewer-title">${escapeHtml(view.code)} ${escapeHtml(view.name || "")}</p>
+      ${view.beforeUrl ? `<figure class="spots__figure"><figcaption>before</figcaption><img src="${escapeAttr(view.beforeUrl)}" alt="before"></figure>` : ""}
+      ${view.afterUrl ? `<figure class="spots__figure"><figcaption>after</figcaption><img src="${escapeAttr(view.afterUrl)}" alt="after"></figure>` : ""}
+      <button type="button" class="btn btn--primary" data-action="retake-after">afterを撮り直す</button>
+      <button type="button" class="btn btn--ghost" data-action="retake-before">beforeを撮り直す</button>
+      <button type="button" class="btn btn--ghost" data-action="close-view">閉じる</button>
+    </div>
+  </div>`;
 }
 
 /** 定点情報を受け取り、撮影状況を示す一覧行のHTMLを返す。 */
@@ -2440,7 +2507,24 @@ function render(root, state, actions) {
     ${mode === "live" ? liveView(shoot) : photoView(shoot)}
     <button type="button" class="btn btn--ghost" data-action="cancel">中止する</button>`;
   updateOverlay(section, 40);
+  watchStageFit(section);
   renderToast(state.toast);
+}
+
+/** before画像・撮影プレビューの縦横に合わせて、枠のかたち（縦長/横長）を揃える */
+function watchStageFit(section) {
+  section.querySelectorAll('[data-role="before-overlay"], [data-role="photo-preview"]').forEach((img) => {
+    const apply = () => fitStage(img);
+    if (img.complete && img.naturalWidth) apply();
+    else img.addEventListener("load", apply, { once: true });
+  });
+}
+
+function fitStage(img) {
+  const stage = img.closest(".shoot__stage");
+  if (stage && img.naturalWidth && img.naturalHeight) {
+    stage.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+  }
 }
 
 /** 撮影状態を受け取り、方式Aのライブ撮影領域を返す。 */
@@ -2529,6 +2613,7 @@ function switchToPhoto(section) {
   const wrapper = document.createElement("div");
   wrapper.innerHTML = photoView({ beforeUrl });
   while (wrapper.firstChild) section.insertBefore(wrapper.firstChild, controls);
+  watchStageFit(section);
   section.querySelector('[data-role="live-video"]')?.closest(".shoot__stage")?.remove();
   section.querySelector('[data-action="start-live"]')?.remove();
   section.querySelector('[data-action="shutter"]')?.remove();
@@ -2541,7 +2626,12 @@ function showPhotoPreview(section, blob) {
   section._pendingBlob = blob;
   section._previewUrl = URL.createObjectURL(blob);
   section._submitting = false;
-  section.querySelector('[data-role="photo-preview"]').src = section._previewUrl;
+  const preview = section.querySelector('[data-role="photo-preview"]');
+  // beforeが無い（before撮影時）は、撮った写真の縦横に枠を合わせる
+  if (!section.querySelector('[data-role="before-overlay"]')) {
+    preview.addEventListener("load", () => fitStage(preview), { once: true });
+  }
+  preview.src = section._previewUrl;
   section.querySelector('[data-role="photo-stage"]').hidden = false;
   section.querySelector('[data-role="photo-controls"]').hidden = false;
   section.querySelector('[data-action="open-camera"]').hidden = true;
@@ -2827,34 +2917,69 @@ const actions = {
     }
   },
 
-  /** 定点をタップ → beforeが無ければbefore撮影、あればafter撮影（beforeを重ねる） */
+  /** 定点をタップ → 未ならbefore撮影、before済ならafter撮影、両方済なら閲覧へ */
   async shootSpot(code) {
     const s = state.getState();
     if (s.spotsBusy || !s.spotsData) return;   // 読み込み中の誤タップを無効化
     const spot = s.spotsData.spots.find((x) => x.code === code);
     if (!spot) return;
-    // 両方撮影済みの定点は、確認してからafterの撮り直しに入る（誤タップ防止。古い写真は消さない）
     if (spot.beforeFileId && spot.afterFileId) {
-      if (!confirm(`${spot.code}（${spot.name}）は撮影済みです。afterを撮り直しますか？`)) return;
+      await actions.viewSpot(code);            // 撮影済みは閲覧画面へ（撮り直しはそこから）
+      return;
     }
-    const kind = spot.beforeFileId ? "after" : "before";
-    let beforeUrl = null;
-    if (kind === "after") {
-      state.setSpotsBusy(true);
-      try {
-        const blob = await drive.downloadFileBlob(spot.beforeFileId);
-        beforeUrl = URL.createObjectURL(blob);
-      } catch (e) {
-        showError(e);
-        state.setSpotsBusy(false);
-        return;
-      }
+    await startShoot(spot, spot.beforeFileId ? "after" : "before");
+  },
+
+  /** 撮影済みペアを見る（before/afterを並べて表示） */
+  async viewSpot(code) {
+    const s = state.getState();
+    if (s.spotsBusy || !s.spotsData) return;
+    const spot = s.spotsData.spots.find((x) => x.code === code);
+    if (!spot) return;
+    state.setSpotsBusy(true);
+    try {
+      const [b, a] = await Promise.all([
+        spot.beforeFileId ? drive.downloadFileBlob(spot.beforeFileId) : null,
+        spot.afterFileId ? drive.downloadFileBlob(spot.afterFileId) : null
+      ]);
+      state.setSpotView({
+        code,
+        name: spot.name,
+        beforeUrl: b ? URL.createObjectURL(b) : null,
+        afterUrl: a ? URL.createObjectURL(a) : null
+      });
+    } catch (e) {
+      showError(e);
+    } finally {
       state.setSpotsBusy(false);
     }
-    // afterはbeforeを重ねるライブ合成（方式A）を優先。使えない端末は撮影後照合（方式B）
-    const live = kind === "after" && (await isLiveAvailable());
-    state.setShoot({ code, kind, beforeUrl, orientation: spot.orientation, mode: live ? "live" : "photo" });
-    state.goto("shoot");
+  },
+
+  closeView() {
+    state.setSpotView(null);
+  },
+
+  /** 閲覧画面から撮り直し（before/afterどちらも指定可。古い写真はDriveに残る＝消さない） */
+  async retakeSpot(code, kind) {
+    const s = state.getState();
+    if (s.spotsBusy || !s.spotsData) return;
+    const spot = s.spotsData.spots.find((x) => x.code === code);
+    if (!spot) return;
+    state.setSpotView(null);
+    await startShoot(spot, kind);
+  },
+
+  /** Driveの定点フォルダをそのまま開く */
+  async openSpotsFolder() {
+    const s = state.getState();
+    if (!s.job) return;
+    try {
+      const p1 = await drive.ensureFolder(s.job.id, "07_SNS_HP素材");
+      const p2 = await drive.ensureFolder(p1, "01_定点ビフォーアフター");
+      window.open(drive.folderWebUrl(p2), "_blank");
+    } catch (e) {
+      showError(e);
+    }
   },
 
   /** 撮影確定：変換 → アップ → 台帳更新 → 一覧へ */
@@ -2908,6 +3033,27 @@ const actions = {
 // stateモジュール内の photos 実体を取り出す小さな橋渡し
 // （uploaderはblobを直接触る必要があるため）
 function statePhotosRef() { return state._photosRef(); }
+
+/** 定点撮影を開始する共通処理（afterのときはbeforeを取得して重ねる） */
+async function startShoot(spot, kind) {
+  let beforeUrl = null;
+  if (kind === "after" && spot.beforeFileId) {
+    state.setSpotsBusy(true);
+    try {
+      const blob = await drive.downloadFileBlob(spot.beforeFileId);
+      beforeUrl = URL.createObjectURL(blob);
+    } catch (e) {
+      showError(e);
+      state.setSpotsBusy(false);
+      return;
+    }
+    state.setSpotsBusy(false);
+  }
+  // afterはbeforeを重ねるライブ合成（方式A）を優先。使えない端末は撮影後照合（方式B）
+  const live = kind === "after" && (await isLiveAvailable());
+  state.setShoot({ code: spot.code, kind, beforeUrl, orientation: spot.orientation, mode: live ? "live" : "photo" });
+  state.goto("shoot");
+}
 
 // ---- 端末記号の初回選択（名前をタップで選ぶ） ----
 function askDeviceTagIfNeeded() {

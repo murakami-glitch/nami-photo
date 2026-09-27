@@ -6,7 +6,9 @@
 <title>ナミノオト 現場写真</title>
 
 <!-- PWA基本設定（manifest・アイコンは実ファイル。distに同梱される） -->
-<meta name="theme-color" content="#16233d">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c212a" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -20,388 +22,134 @@
 
 <!-- __STYLE__ ← ビルド時に style.css がここに入る -->
 <style>
-/* style.css — ナミノオト現場写真 v1.1「キリッと」デザイン（担当：Claude に交代）
-   パレット：ロゴの紺（顔）／赤茶（アクセント）／和紙ベージュ（背景）
-   方針：白カード＋細い罫線＋締まった角＋強弱のある文字。現場で押しやすい大きさは維持 */
-
+/* 共通の色と寸法。端末の表示設定に合わせて切り替える。 */
 :root {
-  --c-navy: #16233d;        /* ロゴの紺。ヘッダー・見出し・文字 */
-  --c-navy-soft: #223354;   /* 紺の明るめ（押した時など） */
-  --c-primary: #c8553d;     /* 赤茶。主ボタン・アクセント */
-  --c-primary-deep: #a94430;
-  --c-bg: #f5f1ea;          /* 和紙ベージュ */
-  --c-card: #fffdf9;        /* カードの白 */
-  --c-line: #d8d0c4;        /* 罫線 */
-  --c-ink: #2b2b2b;         /* 本文 */
-  --c-ink-weak: #6f6a61;    /* 補足文字 */
-  --c-ok: #3f7d5a;
-  --c-ng: #b03a2e;
-  --radius: 10px;
-  --shadow: 0 1px 2px rgba(22, 35, 61, 0.08), 0 4px 14px rgba(22, 35, 61, 0.06);
+  color-scheme: light;
+  --c-navy: #16233d; --c-navy-soft: #263b60;
+  --c-primary: #16233d; --c-primary-deep: #263b60; --on-primary: #fff;
+  --c-bg: #f5f6f8; --c-card: #fff; --c-line: #e8eaee;
+  --c-ink: #202631; --c-ink-weak: #69717e; --c-soft: #eef0f4;
+  --c-ok: #36724f; --c-ng: #b03a2e; --c-stage: #10151e;
+  --scrim: rgba(12,20,35,.48); --radius: 16px;
+  --shadow: 0 2px 12px rgba(22,35,61,.035);
+  --top-height: calc(52px + env(safe-area-inset-top, 0px));
 }
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-html { -webkit-text-size-adjust: 100%; }
-
-body {
-  font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", Meiryo, sans-serif;
-  background: var(--c-bg);
-  color: var(--c-ink);
-  line-height: 1.55;
-  min-height: 100dvh;
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; --c-bg: #101319; --c-card: #1c212a;
+    --c-line: #303743; --c-ink: #f0f2f6; --c-ink-weak: #a5afbf;
+    --c-soft: #282f3c; --c-navy: #d7e3fa; --c-navy-soft: #354d75;
+    --c-primary: #b9ccef; --c-primary-deep: #d4e0f7; --on-primary: #16233d;
+    --c-ok: #8acba2; --c-ng: #ffaaa0; --shadow: 0 2px 12px rgba(0,0,0,.12); }
 }
-
-#app { min-height: 100dvh; display: flex; flex-direction: column; }
-
-/* ---- ヘッダー：紺の帯にロゴ ---- */
-.appbar {
-  position: sticky; top: 0; z-index: 50;
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: var(--c-navy);
-  color: #fff;
-  padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 10px;
-  box-shadow: 0 2px 8px rgba(22, 35, 61, 0.25);
-}
-.appbar__brand {
-  display: flex; align-items: center; gap: 8px;
-  font-weight: 700; font-size: 16px; letter-spacing: 0.06em;
-  white-space: nowrap;
-}
-.appbar__logo {
-  width: 26px; height: 26px; border-radius: 6px; display: block;
-}
-.appbar__sub {
-  font-size: 11px; font-weight: 500; letter-spacing: 0.14em;
-  color: rgba(255, 255, 255, 0.72);
-  border-left: 1px solid rgba(255, 255, 255, 0.3);
-  padding-left: 8px; margin-left: 2px;
-}
-.acct {
-  font-size: 11px; color: rgba(255, 255, 255, 0.75);
-  max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-/* ---- 画面の器 ---- */
-#screens { flex: 1; width: 100%; max-width: 480px; margin: 0 auto; padding: 16px 16px 32px; }
-
-.screen { display: none; }
-.screen--active { display: block; animation: rise 0.18s ease-out; }
-@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-
-.screen__head { margin: 8px 0 16px; }
-.screen__head h1 {
-  font-size: 22px; font-weight: 800; color: var(--c-navy);
-  letter-spacing: 0.02em; line-height: 1.3;
-}
-.screen__head h2 { font-size: 15px; color: var(--c-navy); margin-top: 16px; }
-.muted { color: var(--c-ink-weak); font-size: 13px; margin-top: 4px; }
-
-.section-title {
-  font-size: 12px; font-weight: 700; color: var(--c-ink-weak);
-  letter-spacing: 0.12em; text-transform: uppercase;
-  margin: 18px 0 8px;
-}
-.divider { border: none; border-top: 1px solid var(--c-line); margin: 16px 0; }
-.empty { color: var(--c-ink-weak); font-size: 13px; padding: 12px 2px; }
-
-/* ---- ボタン ---- */
-.btn {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; min-height: 46px;
-  border: 1px solid transparent; border-radius: var(--radius);
-  font-family: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.03em;
-  cursor: pointer;
-  user-select: none; -webkit-user-select: none; touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.06s ease, filter 0.12s ease;
-  margin-top: 10px;
-}
-.btn:active { transform: scale(0.985); }
-.btn--big { min-height: 58px; font-size: 16px; }
-.btn--primary {
-  background: var(--c-primary); color: #fff;
-  box-shadow: 0 2px 6px rgba(200, 85, 61, 0.32);
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--top-height) + 90px); }
+body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; background: var(--c-bg); color: var(--c-ink); line-height: 1.6; min-height: 100dvh; }
+button, input { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; cursor: pointer; }
+button, input, .row-main { min-width: 0; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 3px; }
+#app { min-height: 100dvh; }
+/* ブランド帯と画面見出しを上部に残す。 */
+.appbar { position: fixed; inset: 0 0 auto; z-index: 50; height: var(--top-height); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: env(safe-area-inset-top, 0px) max(20px, env(safe-area-inset-right, 0px)) 0 max(20px, env(safe-area-inset-left, 0px)); background: var(--c-card); }
+.appbar__brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; white-space: nowrap; color: var(--c-navy); }
+.appbar__logo { width: 26px; height: 26px; border-radius: 7px; }
+.appbar__sub { display: none; }
+.acct { font-size: 10px; color: var(--c-ink-weak); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 38%; }
+#screens { width: 100%; max-width: 600px; margin: auto; padding: var(--top-height) max(20px, env(safe-area-inset-right, 0px)) calc(36px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px)); }
+.screen { display: none; overflow-wrap: anywhere; }
+.screen--active { display: block; animation: fade-in .18s ease-out; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.screen > .screen__head:first-child { position: sticky; top: var(--top-height); z-index: 40; background: var(--c-bg); padding: 20px 0 18px; margin: 0 0 12px; }
+.screen__head h1 { font-size: 27px; font-weight: 750; line-height: 1.35; letter-spacing: -.04em; color: var(--c-ink); }
+.screen__head:has(.nav-back) { padding-left: 38px !important; }
+.nav-back { position: absolute; left: -8px; top: 13px; width: 44px !important; min-height: 48px !important; margin: 0 !important; font-size: 36px !important; font-weight: 400 !important; background: transparent; color: var(--c-navy); }
+.muted { font-size: 13px; color: var(--c-ink-weak); margin-top: 8px; }
+.section-title { font-size: 12px; font-weight: 600; color: var(--c-ink-weak); margin: 26px 4px 10px; }
+.divider { display: none; }
+.empty { padding: 32px 16px; text-align: center; color: var(--c-ink-weak); font-size: 14px; }
+.btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; border: 0; border-radius: var(--radius); font-size: 15px; font-weight: 600; padding: 10px 16px; margin-top: 10px; transition: background .15s, transform .12s; }
+.btn--big, .btn--primary { min-height: 56px; }
+.btn--primary { background: var(--c-primary); color: var(--on-primary); }
+.btn--ghost { background: var(--c-soft); color: var(--c-navy); }
+.btn:active { transform: scale(.98); }
 .btn--primary:active { background: var(--c-primary-deep); }
-.btn--ghost {
-  background: transparent; color: var(--c-ink-weak);
-  border-color: var(--c-line); font-weight: 600;
-}
-.btn:disabled { opacity: 0.45; pointer-events: none; box-shadow: none; }
-
-/* 工程ボタンだけは「白カード＋紺文字」。赤の壁にしない（data-step-keyで判別） */
-.btn[data-step-key] {
-  background: var(--c-card); color: var(--c-navy);
-  border: 1px solid var(--c-line);
-  box-shadow: var(--shadow);
-  justify-content: flex-start; padding: 0 18px;
-  position: relative;
-}
-.btn[data-step-key]::before {
-  content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px;
-  border-radius: 0 4px 4px 0; background: var(--c-primary);
-}
-.btn[data-step-key]::after {
-  content: "›"; margin-left: auto; color: var(--c-line);
-  font-size: 22px; font-weight: 400;
-}
-
-/* ---- リスト（案件・Day） ---- */
-.list-stack { display: flex; flex-direction: column; gap: 8px; }
-.list-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  width: 100%; min-height: 56px;
-  background: var(--c-card); color: var(--c-ink);
-  border: 1px solid var(--c-line); border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 10px 14px;
-  font-family: inherit; font-size: 15px; text-align: left;
-  cursor: pointer;
-  user-select: none; -webkit-user-select: none; touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-.list-row:active { background: #f8f3ea; }
-.list-row > span[aria-hidden] { color: var(--c-line); font-size: 22px; }
-.row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.row-main strong { color: var(--c-navy); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn:disabled { opacity: .4; cursor: default; }
+/* 主要操作は親指が届く下部に固定する。 */
+.bottom-actions { position: fixed; bottom: 0; left: 0; right: 0; z-index: 45; width: 100%; max-width: 600px; margin: auto; padding: 12px max(20px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px)); background: var(--c-card); box-shadow: 0 -1px 0 var(--c-line); }
+.bottom-actions:not(:has(*)) { display: none; }
+.bottom-actions .btn { margin: 0; }
+.bottom-actions > .btn + .btn { margin-top: 8px; }
+.screen:has(.bottom-actions) { padding-bottom: calc(170px + env(safe-area-inset-bottom, 0px)); }
+.capture-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-bottom: 8px; }
+/* 一枚のカードに並ぶ、設定アプリ風の一覧。 */
+.list-stack { display: flex; flex-direction: column; gap: 0; background: var(--c-card); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.list-row, .btn[data-step-key] { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 66px; padding: 14px 18px; border: 0; border-radius: 0; background: var(--c-card); color: var(--c-ink); text-align: left; font-size: 15px; margin: 0; box-shadow: none; }
+.list-row + .list-row, .btn[data-step-key] + .btn[data-step-key] { border-top: 1px solid var(--c-line); }
+.list-row:active, .btn[data-step-key]:active { background: var(--c-soft); }
+.list-row > span[aria-hidden], .btn[data-step-key]::after { color: var(--c-ink-weak); font-size: 24px; font-weight: 400; flex-shrink: 0; }
+.btn[data-step-key]::after { content: '›'; margin-left: auto; }
+.row-main { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.row-main strong { font-size: 15px; font-weight: 600; }
 .row-main small { color: var(--c-ink-weak); font-size: 12px; }
-
-/* ---- 検索 ---- */
-input[type="search"] {
-  width: 100%; min-height: 46px;
-  background: var(--c-card);
-  border: 1px solid var(--c-line); border-radius: var(--radius);
-  padding: 0 14px;
-  font-family: inherit; font-size: 15px; color: var(--c-ink);
-  outline: none;
-  -webkit-appearance: none; appearance: none;
-}
-input[type="search"]:focus { border-color: var(--c-navy); box-shadow: 0 0 0 3px rgba(22, 35, 61, 0.12); }
-input[type="search"]::placeholder { color: var(--c-ink-weak); }
-
-/* ---- アップ先の表示 ---- */
-.pathbar {
-  display: block;
-  background: rgba(22, 35, 61, 0.06);
-  border: 1px solid var(--c-line); border-radius: 8px;
-  color: var(--c-navy); font-size: 12px; font-weight: 600;
-  padding: 8px 10px; margin-top: 8px;
-  word-break: break-all;
-}
-
-/* ---- 写真選択 ---- */
+input[type="search"], .spots__input, .new-job-panel input { display: block; width: 100%; max-width: 100%; min-height: 52px; padding: 12px 14px; border: 1px solid transparent; border-radius: 12px; background: var(--c-soft); color: var(--c-ink); font-size: 16px; appearance: none; }
+input::placeholder { color: var(--c-ink-weak); opacity: 1; }
+.pathbar { color: var(--c-ink-weak); font-size: 11px; line-height: 1.6; margin-top: 10px; overflow-wrap: anywhere; }
+.new-job-open { margin: 0 0 16px; }
+.new-job-panel { display: grid; gap: 24px; padding: 24px 18px; background: var(--c-card); border-radius: var(--radius); box-shadow: var(--shadow); }
+.new-job-panel label { display: grid; gap: 10px; font-size: 13px; font-weight: 600; }
+.new-job-name { font-weight: 600; overflow-wrap: anywhere; }
+.new-job-error, .status-error { color: var(--c-ng); }
+.welcome-card { padding: 40px 24px; margin-top: 24px; border-radius: var(--radius); background: var(--c-card); box-shadow: var(--shadow); }
+.welcome-mark { display: block; color: var(--c-navy); font-size: 64px; line-height: 1; margin-bottom: 32px; }
+.welcome-card h2 { font-size: 21px; letter-spacing: -.03em; }
 .file-input { display: none; }
-.photo-summary {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  margin: 16px 0 8px;
-}
-.photo-summary strong { color: var(--c-navy); font-size: 14px; }
-.photo-summary .btn { width: auto; min-height: 38px; margin: 0; padding: 0 14px; font-size: 13px; }
-
-.thumb-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px;
-  margin: 8px 0 4px;
-}
-.thumb {
-  position: relative; aspect-ratio: 1;
-  border-radius: 8px; overflow: hidden;
-  background: var(--c-card); border: 1px solid var(--c-line);
-}
+.photo-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 16px 0 12px; }
+.photo-summary strong { font-size: 13px; }
+.photo-summary .btn { width: auto; min-height: 44px; font-size: 12px; margin: 0; padding: 8px 10px; background: transparent; }
+.thumb-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 3px; }
+.thumb { position: relative; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: var(--c-soft); }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.thumb__placeholder {
-  display: flex; align-items: center; justify-content: center;
-  width: 100%; height: 100%; font-size: 24px; color: var(--c-ok);
-}
-.thumb__del {
-  position: absolute; top: 4px; right: 4px;
-  width: 26px; height: 26px; border-radius: 50%;
-  background: rgba(22, 35, 61, 0.82); color: #fff;
-  border: none; font-size: 15px; line-height: 1;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-  user-select: none; -webkit-user-select: none; touch-action: manipulation;
-}
-
-/* ---- 進捗 ---- */
-.progress-row { margin: 12px 0; }
-.progress-row__head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  font-size: 13px; margin-bottom: 5px;
-}
-.progress-row__head .row-main { color: var(--c-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.progress-row__head strong { color: var(--c-navy); font-size: 15px; white-space: nowrap; }
-
-.bar {
-  height: 8px; border-radius: 999px; overflow: hidden;
-  background: rgba(22, 35, 61, 0.10);
-}
-.bar__fill {
-  height: 100%; border-radius: 999px;
-  background: linear-gradient(90deg, var(--c-primary), var(--c-primary-deep));
-  transition: width 0.25s ease;
-}
-
+.thumb__placeholder { display: grid; place-items: center; height: 100%; color: var(--c-ok); }
+.thumb__del { position: absolute; top: 0; right: 0; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 0 0 0 16px; background: var(--scrim); color: #fff; font-size: 23px; }
+.progress-overall { padding: 24px 20px; background: var(--c-card); border-radius: var(--radius); margin: 8px 0 24px; box-shadow: var(--shadow); }
+.progress-row { padding: 16px 0; border-bottom: 1px solid var(--c-line); }
+.progress-row__head { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; font-size: 12px; margin-bottom: 10px; }
+.progress-row__head .row-main { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-row__head strong { font-size: 12px; flex-shrink: 0; }
+.progress-overall strong { font-size: 17px; }
+.bar { height: 4px; border-radius: 8px; overflow: hidden; background: var(--c-soft); }
+.bar__fill { height: 100%; background: var(--c-primary); border-radius: inherit; transition: width .2s; }
 .status-success { color: var(--c-ok); }
-.status-error { color: var(--c-ng); font-weight: 600; }
-
-.badge {
-  display: inline-flex; align-items: center;
-  background: var(--c-primary); color: #fff;
-  border-radius: 999px; padding: 1px 9px;
-  font-size: 11px; font-weight: 700;
-}
-
-/* ---- トースト（通知） ---- */
-#toast-root { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); z-index: 100; pointer-events: none; }
-.toast {
-  width: fit-content; max-width: 88%;
-  margin: 0 auto;
-  background: var(--c-navy); color: #fff;
-  border-radius: 999px;
-  padding: 11px 20px;
-  font-size: 14px; font-weight: 600;
-  box-shadow: 0 6px 20px rgba(22, 35, 61, 0.35);
-  animation: rise 0.2s ease-out;
-}
-
-/* ---- くるくる ---- */
-.spinner {
-  width: 22px; height: 22px;
-  border: 3px solid rgba(22, 35, 61, 0.15); border-top-color: var(--c-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
+.status-error { font-weight: 600; }
+.badge, .spots__status { background: var(--c-soft); color: var(--c-navy); font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 8px; flex-shrink: 0; }
+.spots-entry { background: var(--c-card); color: var(--c-navy); justify-content: space-between; box-shadow: var(--shadow); }
+.spots-entry::after { content: '›'; font-size: 24px; color: var(--c-ink-weak); }
+.spots__add { background: var(--c-card); border-radius: var(--radius); padding: 20px; margin-top: 16px; }
+.spots__label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 20px; }
+.spots__input { margin-top: 8px; }
+.spots__error { font-size: 13px; }
+/* 撮影処理が参照する要素の親子関係は変えずに配置する。 */
+.screen[data-screen="shoot"] { padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px)); }
+.shoot__stage { position: relative; width: 100%; aspect-ratio: 3/4; max-height: 55dvh; background: var(--c-stage); border-radius: var(--radius); overflow: hidden; }
+.shoot__media, .shoot__overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.shoot__overlay { pointer-events: none; }
+.shoot__opacity { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--c-ink-weak); margin: 12px 0; }
+.shoot__opacity input { flex: 1; min-height: 44px; min-width: 0; accent-color: var(--c-primary); }
+.shoot-primary, .shoot__shutter { position: fixed; z-index: 46; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: max(20px, env(safe-area-inset-left, 0px)); right: max(20px, env(safe-area-inset-right, 0px)); width: auto; max-width: 560px; margin: auto; box-shadow: 0 0 0 12px var(--c-bg); }
+.spots__viewer, .device-picker { position: fixed; inset: 0; z-index: 150; display: flex; align-items: flex-start; justify-content: center; padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px)); background: var(--scrim); backdrop-filter: blur(5px); overflow-y: auto; }
+.spots__viewer-card, .device-picker__card { width: 100%; max-width: 440px; background: var(--c-card); border-radius: 20px; padding: 24px 20px; box-shadow: var(--shadow); }
+.device-picker { z-index: 200; align-items: center; }
+.device-picker__card { max-height: 100%; overflow-y: auto; }
+.device-picker__card p, .spots__viewer-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+.spots__figure { margin-bottom: 16px; }
+.spots__figure figcaption { font-size: 12px; color: var(--c-ink-weak); margin-bottom: 6px; }
+.spots__figure img { display: block; width: 100%; max-height: 34vh; object-fit: contain; background: var(--c-stage); border-radius: 12px; }
+#toast-root { position: fixed; left: 16px; right: 16px; bottom: calc(170px + env(safe-area-inset-bottom, 0px)); z-index: 210; pointer-events: none; }
+.toast { width: fit-content; max-width: 100%; margin: auto; background: var(--c-ink); color: var(--c-bg); padding: 12px 18px; border-radius: 14px; font-size: 13px; overflow-wrap: anywhere; box-shadow: var(--shadow); }
+.spinner { width: 22px; height: 22px; border: 2px solid var(--c-line); border-top-color: var(--c-primary); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* ---- 端末の使う人選択（初回だけの全画面） ---- */
-.device-picker {
-  position: fixed; inset: 0; z-index: 200;
-  background: rgba(22, 35, 61, 0.55);
-  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px;
-}
-.device-picker__card {
-  width: 100%; max-width: 360px;
-  background: var(--c-card);
-  border-radius: 14px;
-  padding: 22px 20px;
-  box-shadow: 0 12px 40px rgba(22, 35, 61, 0.4);
-}
-.device-picker__card p {
-  font-size: 15px; font-weight: 700; color: var(--c-navy);
-  text-align: center; margin-bottom: 6px;
-}
-
-/* ---- Phase 2：定点ビフォーアフター ---- */
-
-/* 工程画面の入口ボタン（紺の縁取りで「素材づくり」感を出す） */
-.spots-entry {
-  background: var(--c-card); color: var(--c-navy);
-  border: 1.5px solid var(--c-navy);
-  box-shadow: var(--shadow);
-}
-.spots-entry:active { background: rgba(22, 35, 61, 0.06); }
-
-/* 定点一覧 */
-.spots__list { margin-bottom: 4px; }
-.spots__status {
-  flex-shrink: 0;
-  font-size: 12px; font-weight: 700; color: var(--c-navy);
-  background: rgba(22, 35, 61, 0.07);
-  border-radius: 999px; padding: 4px 10px;
-  white-space: nowrap;
-}
-
-/* 定点の追加フォーム */
-.spots__add {
-  background: var(--c-card);
-  border: 1px solid var(--c-line); border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 16px 14px; margin-top: 10px;
-}
-.spots__label {
-  display: block;
-  font-size: 12px; font-weight: 700; color: var(--c-ink-weak);
-  margin-bottom: 10px;
-}
-.spots__input {
-  display: block; width: 100%; min-height: 46px;
-  margin-top: 4px;
-  background: #fff;
-  border: 1px solid var(--c-line); border-radius: 8px;
-  padding: 0 12px;
-  font-family: inherit; font-size: 15px; color: var(--c-ink);
-  outline: none;
-  -webkit-appearance: none; appearance: none;
-}
-.spots__input:focus { border-color: var(--c-navy); box-shadow: 0 0 0 3px rgba(22, 35, 61, 0.12); }
-.spots__error { font-size: 13px; margin: 2px 0 6px; }
-
-/* 撮影画面：映像・写真とbeforeの重ね合わせ */
-.shoot__stage {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 3 / 4;
-  max-height: 62vh;
-  background: #0d1524;
-  border-radius: var(--radius);
-  overflow: hidden;
-  margin-bottom: 6px;
-}
-.shoot__media {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
-  object-fit: cover;        /* 枠はbefore写真の縦横に合わせるので、coverでピッタリ埋めて位置を合わせる */
-  display: block;
-}
-.shoot__overlay {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
-  object-fit: cover;
-  pointer-events: none;
-}
-.shoot__opacity {
-  display: flex; align-items: center; gap: 10px;
-  font-size: 13px; font-weight: 600; color: var(--c-navy);
-  margin: 8px 0 2px;
-}
-.shoot__opacity input[type="range"] { flex: 1; accent-color: var(--c-primary); min-height: 44px; }
-.shoot__shutter { background: var(--c-navy); box-shadow: 0 2px 6px rgba(22, 35, 61, 0.35); }
-.shoot__shutter:active { background: var(--c-navy-soft); }
-
-/* 撮影済みペアの閲覧パネル */
-.spots__viewer {
-  position: fixed; inset: 0; z-index: 150;
-  background: rgba(22, 35, 61, 0.55);
-  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-  display: flex; align-items: flex-start; justify-content: center;
-  padding: 18px 16px calc(env(safe-area-inset-bottom, 0px) + 18px);
-  overflow-y: auto;
-}
-.spots__viewer-card {
-  width: 100%; max-width: 420px;
-  background: var(--c-card);
-  border-radius: 14px;
-  padding: 16px 16px 18px;
-  box-shadow: 0 12px 40px rgba(22, 35, 61, 0.4);
-}
-.spots__viewer-title {
-  font-size: 16px; font-weight: 800; color: var(--c-navy);
-  text-align: center; margin-bottom: 10px;
-}
-.spots__figure { margin: 0 0 10px; }
-.spots__figure figcaption {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
-  color: var(--c-ink-weak); margin-bottom: 3px; text-transform: uppercase;
-}
-.spots__figure img {
-  display: block; width: 100%; max-height: 34vh;
-  object-fit: contain;
-  background: #0d1524;
-  border-radius: 8px;
-}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 
 </style>
 </head>
@@ -463,6 +211,12 @@ const CREATABLE_FOLDERS = [
 ];
 const CREATABLE_DAY_PATTERN = /^Day\d+_\d{8}$/; // DayN_YYYYMMDD
 
+// 案件作成専用。ensureFolder の許可リストには追加しない。
+const JOB_SUBFOLDERS = Object.freeze([
+  "01_事前資料", "02_着工前写真", "03_施工中写真",
+  "04_完了写真", "05_報告書", "06_書類_見積請求"
+]);
+
 // 端末記号の割り当て。人が増えたらここに1行足すだけ
 const DEVICE_OWNERS = [
   { tag: "M", name: "まぁくん（村上）" },
@@ -471,7 +225,7 @@ const DEVICE_OWNERS = [
   { tag: "X", name: "その他・応援" }
 ];
 
-return { CONFIG, STEPS, CREATABLE_FOLDERS, CREATABLE_DAY_PATTERN, DEVICE_OWNERS };
+return { CONFIG, STEPS, CREATABLE_FOLDERS, CREATABLE_DAY_PATTERN, JOB_SUBFOLDERS, DEVICE_OWNERS };
 })();
 
 const __npu_storage = (() => {
@@ -882,6 +636,7 @@ const state = {
   screen: "login",        // "login" | "jobs" | "step" | "photos" | "progress"
   email: null,            // ログイン中のアカウント
   jobs: [],               // 案件一覧（Job[]）
+  newJob: null,           // 新規現場の入力・確認・処理中の状態
   job: null,              // 選択中の案件
   step: null,             // 選択中の工程（Stepの完成形。duringはDay確定済み）
   dayFolders: [],         // 施工中のDayN一覧（ui-step用）
@@ -911,6 +666,7 @@ function emit() {
 function getState() {
   return {
     ...state,
+    newJob: state.newJob ? { ...state.newJob } : null,
     photos: state.photos.map((p) => ({ ...p })),
     jobs: state.jobs.map((j) => ({ ...j })),
     dayFolders: state.dayFolders.map((d) => ({ ...d })),
@@ -933,6 +689,12 @@ function subscribe(fn) {
 function goto(screenName) {
   state.screen = screenName;
   emit();
+}
+
+/** 新規現場の画面状態を受け取り、必要なら再描画を通知する。 */
+function setNewJob(value, notify = true) {
+  state.newJob = value ? { ...value } : null;
+  if (notify) emit();
 }
 
 // ---- Phase 2：定点ビフォーアフター ----
@@ -1154,7 +916,7 @@ function restoreDraft(draft) {
   emit();
 }
 
-return { getState, _photosRef, subscribe, goto, setSpots, setSpotsBusy, setShoot, setSpotView, setEmail, setJobs, setJob, setStep, setDayFolders, setTarget, setUploading, setOverall, patchPhoto, showToast, addPhotos, removePhoto, clearPhotos, releasePhotoData, loadDraft, clearDraft, restoreDraft };
+return { getState, _photosRef, subscribe, goto, setNewJob, setSpots, setSpotsBusy, setShoot, setSpotView, setEmail, setJobs, setJob, setStep, setDayFolders, setTarget, setUploading, setOverall, patchPhoto, showToast, addPhotos, removePhoto, clearPhotos, releasePhotoData, loadDraft, clearDraft, restoreDraft };
 })();
 
 const __npu_auth = (() => {
@@ -1288,7 +1050,7 @@ return { init, signIn, trySilentSignIn, notifyAuthLost, ensureToken, getAccountE
 })();
 
 const __npu_drive = (() => {
-const { CONFIG, CREATABLE_FOLDERS, CREATABLE_DAY_PATTERN } = __npu_config;
+const { CONFIG, CREATABLE_FOLDERS, CREATABLE_DAY_PATTERN, JOB_SUBFOLDERS } = __npu_config;
 const { ensureToken, notifyAuthLost } = __npu_auth;
 const { parseJobFolderName } = __npu_naming;
 // drive.js — Google Driveの読み書き（担当：Claude）
@@ -1300,6 +1062,56 @@ const { parseJobFolderName } = __npu_naming;
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+/** 入力3項目を検証し、前後の空白を除いた案件名と表示情報を返す。 */
+function buildJobFolderName({ dateISO, site, work } = {}) {
+  const values = { site, work };
+  for (const [key, label] of [["site", "現場名"], ["work", "工事内容"]]) {
+    const value = values[key];
+    if (typeof value !== "string" || !value.trim()) throw new Error(`${label}を入力してください。`);
+    if (/[\\/:*?"<>|_\r\n\u2028\u2029]/.test(value)) {
+      throw new Error(`${label}には / \\ : * ? " < > | と _、改行は使えません。文字を直してください。`);
+    }
+    values[key] = value.trim();
+  }
+  dateISO = typeof dateISO === "string" ? dateISO.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) throw new Error("日付を選んでください。");
+  const folderName = `${dateISO.replace(/-/g, "")}_${values.site}_${values.work}`;
+  const parsed = parseJobFolderName(folderName);
+  if (parsed.dateISO !== dateISO || parsed.site !== values.site || parsed.work !== values.work) {
+    throw new Error("正しい日付を選んでください。");
+  }
+  return { folderName, ...parsed };
+}
+
+/** 案件入力と確認済み既存IDを受け取り、案件と固定6フォルダだけを追加して返す。 */
+async function createJobFolder(jobsFolderId, input, confirmedExistingId = null) {
+  const job = buildJobFolderName(input);
+  if (jobsFolderId !== await resolveJobsFolderId()) throw new Error("案件の保存先を確認できません。開き直してください。");
+  const meta = await gfetch(`${API}/files/${encodeURIComponent(jobsFolderId)}?fields=name,mimeType,trashed`);
+  if (!meta.ok) throw new Error("案件の保存先を確認できません。");
+  const parent = await meta.json();
+  if (parent.name !== CONFIG.JOBS_FOLDER_NAME || parent.mimeType !== FOLDER_MIME || parent.trashed) {
+    throw new Error("案件別フォルダ以外には作成できません。");
+  }
+  const found = await findChild(jobsFolderId, job.folderName);
+  if (found && found.id !== confirmedExistingId) return { needsConfirmation: true, job: { ...job, id: found.id } };
+  if (!found && confirmedExistingId) throw new Error("確認した現場が見つかりません。もう一度お試しください。");
+  // この関数内だけで使用し、任意名のフォルダ作成を外部に公開しない。
+  async function create(parentId, name) {
+    const res = await gfetch(`${API}/files?fields=id`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId] })
+    });
+    if (!res.ok) throw new Error("フォルダ作成に失敗しました。もう一度お試しください（" + res.status + "）。");
+    return (await res.json()).id;
+  }
+  const id = found ? found.id : await create(jobsFolderId, job.folderName);
+  for (const name of JOB_SUBFOLDERS) {
+    if (!await findChild(id, name)) await create(id, name);
+  }
+  return { needsConfirmation: false, job: { ...job, id } };
+}
 
 /** 認証ヘッダ付きfetch。401はトークンを無効化して全画面に通知したうえで投げる */
 async function gfetch(url, options = {}) {
@@ -1584,7 +1396,7 @@ async function updateSpotsJson(fileId, obj, expectedParentId) {
   if (!res.ok) throw new Error("台帳の更新に失敗しました（" + res.status + "）");
 }
 
-return { resolveJobsFolderId, listJobs, findChild, ensureFolder, resolveStepFolderId, listDayFolders, listFileNames, startResumable, sendChunk, probeResumable, folderWebUrl, findJsonInFolder, downloadFileBlob, createJsonFile, updateSpotsJson };
+return { buildJobFolderName, createJobFolder, resolveJobsFolderId, listJobs, findChild, ensureFolder, resolveStepFolderId, listDayFolders, listFileNames, startResumable, sendChunk, probeResumable, folderWebUrl, findJsonInFolder, downloadFileBlob, createJsonFile, updateSpotsJson };
 })();
 
 const __npu_spots = (() => {
@@ -2070,7 +1882,7 @@ function render(root, state, actions) {
       <h1>現場写真を送る</h1>
       <p class="muted">会社のGoogleアカウントでログインしてください。</p>
     </div>
-    <div class="screen__actions">
+    <div class="welcome-card"><span class="welcome-mark" aria-hidden="true">≈</span><h2>撮った写真を、その場で。</h2><p class="muted">現場と工程を選んで、写真を送れます。</p></div><div class="bottom-actions">
       <button type="button" class="btn btn--primary btn--big" data-action="sign-in">Googleでログイン</button>
     </div>`;
   renderToast(state.toast);
@@ -2101,11 +1913,20 @@ function mount(root, actions) {
   section.className = "screen";
   section.dataset.screen = "jobs";
   section.addEventListener("input", (event) => {
+    if (event.target.dataset.newJobField) {
+      actions.editNewJob(event.target.dataset.newJobField, event.target.value);
+      return;
+    }
     if (!event.target.matches('[data-role="job-search"]')) return;
     section.dataset.query = event.target.value;
     filterRows(section, event.target.value);
   });
   section.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-new-job-action]");
+    if (action) {
+      actions[action.dataset.newJobAction]();
+      return;
+    }
     const button = event.target.closest("[data-job-id]");
     if (button) actions.selectJob(section._jobsById.get(button.dataset.jobId));
   });
@@ -2118,18 +1939,40 @@ function render(root, state, actions) {
   root.querySelectorAll(".screen").forEach((screen) => screen.classList.remove("screen--active"));
   const section = root.querySelector('[data-screen="jobs"]');
   section.classList.add("screen--active");
+  if (state.newJob) {
+    section.innerHTML = newJobPanel(state.newJob);
+    renderToast(state.toast);
+    return;
+  }
   const query = section.dataset.query || "";
   const all = [...(state.jobs || [])].sort((a, b) => String(b.folderName || b.dateISO || "").localeCompare(String(a.folderName || a.dateISO || ""), "ja"));
   const recent = (actions.getRecentJobs ? actions.getRecentJobs() : []).slice(0, 3);
   section._jobsById = new Map([...all, ...recent].filter(Boolean).map((job) => [String(job.id), job]));
   section.innerHTML = `
-    <div class="screen__head"><h1>案件を選ぶ</h1><p class="muted">現場名で検索できます。</p></div>
-    <input type="search" data-role="job-search" value="${escapeAttr(query)}" placeholder="案件名を検索" aria-label="案件名を検索">
-    ${recent.length ? `<h2 class="section-title">最近使った案件</h2><div class="list-stack">${recent.map(jobRow).join("")}</div><hr class="divider">` : ""}
-    <h2 class="section-title">すべての案件</h2>
-    <div class="list-stack" data-role="all-jobs">${all.length ? all.map(jobRow).join("") : '<p class="empty">案件がありません。</p>'}</div>`;
+    <div class="screen__head"><h1>現場を選ぶ</h1><p class="muted">現場名で検索できます。</p></div>
+    <button type="button" class="btn btn--big btn--ghost new-job-open" data-new-job-action="openNewJob">＋ 新しい現場</button>
+    <input type="search" data-role="job-search" value="${escapeAttr(query)}" placeholder="現場名を検索" aria-label="現場名を検索">
+    ${recent.length ? `<h2 class="section-title">最近の現場</h2><div class="list-stack">${recent.map(jobRow).join("")}</div><hr class="divider">` : ""}
+    <h2 class="section-title">すべての現場</h2>
+    <div class="list-stack" data-role="all-jobs">${all.length ? all.map(jobRow).join("") : '<p class="empty">現場がありません。</p>'}</div>`;
   filterRows(section, query);
   renderToast(state.toast);
+}
+
+/** 入力・確認状態を受け取り、新しい現場の画面を返す。 */
+function newJobPanel(draft) {
+  const disabled = draft.busy ? "disabled" : "";
+  const input = draft.phase === "input";
+  return `<div class="screen__head"><h1>新しい現場</h1></div>
+    <div class="new-job-panel" aria-busy="${!!draft.busy}">
+    ${input ? `<label>現場名（必須）<input type="text" data-new-job-field="site" value="${escapeAttr(draft.site)}" placeholder="例：佐々木様邸" required></label>
+    <label>工事内容（必須）<input type="text" data-new-job-field="work" value="${escapeAttr(draft.work)}" placeholder="例：外壁塗装" required></label>
+    <label>日付<input type="date" data-new-job-field="dateISO" value="${escapeAttr(draft.dateISO)}" required></label>`
+    : `<p>${draft.phase === "existing" ? "同じ名前の現場があります。そちらを開きますか？" : "この名前で作ります："}</p><p class="new-job-name">${escapeHtml(draft.folderName)}</p>`}
+    ${draft.error ? `<p class="new-job-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
+    ${draft.busy ? '<p role="status">フォルダを準備しています…</p>' : ""}
+    <div class="bottom-actions"><button type="button" class="btn btn--big btn--primary" data-new-job-action="${input ? "confirmNewJob" : "createNewJob"}" ${disabled}>${input ? "名前を確認" : draft.phase === "existing" ? "この現場を開く" : "作成"}</button>
+    <button type="button" class="btn btn--big btn--ghost" data-new-job-action="cancelNewJob" ${disabled}>やめる</button></div></div>`;
 }
 
 /** 案件を受け取り、選択ボタンのHTMLを返す。 */
@@ -2194,14 +2037,14 @@ function render(root, state, actions) {
   const showDays = section.dataset.showDays === "true" || days.length > 0;
   section._daysById = new Map(days.map((day) => [String(day.id), day]));
   section.innerHTML = `
-    <div class="screen__head"><h1>工程を選ぶ</h1><p class="muted">${escapeHtml(state.job?.site || state.job?.folderName || "")}</p></div>
-    <div class="screen__actions">
+    <div class="screen__head"><button type="button" class="btn nav-back" data-action="back" aria-label="戻る">‹</button><h1>工程を選ぶ</h1><p class="muted">${escapeHtml(state.job?.site || state.job?.folderName || "")}</p></div>
+    <div class="list-stack step-list">
       ${stepButton("pre", "事前資料")}${stepButton("before", "着工前")}${stepButton("during", "施工中")}${stepButton("done", "完了")}${stepButton("sns", "SNS素材")}
     </div>
-    ${showDays ? `<div class="screen__head"><h2 class="section-title">施工中の日付を選ぶ</h2>${days.length ? `<div class="list-stack">${days.map(dayRow).join("")}</div>` : '<p class="empty">施工中の日付フォルダはまだありません。</p>'}<button type="button" class="btn btn--primary btn--big" data-action="create-day">今日の日付で新規作成</button></div>` : ""}
+    ${showDays ? `<div class="screen__head"><h2 class="section-title">施工中の日付を選ぶ</h2>${days.length ? `<div class="list-stack">${days.map(dayRow).join("")}</div>` : '<p class="empty">日付がまだありません。</p>'}<button type="button" class="btn btn--primary btn--big" data-action="create-day">今日の日付で新規作成</button></div>` : ""}
     <h2 class="section-title">SNS・HP素材づくり</h2>
-    <button type="button" class="btn btn--big spots-entry" data-action="open-spots">📐 定点ビフォーアフター</button>
-    <button type="button" class="btn btn--ghost" data-action="back">戻る</button>`;
+    <button type="button" class="btn btn--big spots-entry" data-action="open-spots">同じ場所の撮影前・撮影後</button>
+    `;
   renderToast(state.toast);
 }
 
@@ -2257,14 +2100,14 @@ function render(root, state, actions) {
   const photos = state.photos || [];
   const bytes = photos.reduce((sum, photo) => sum + Number(photo.bytes || 0), 0);
   section.innerHTML = `
-    <div class="screen__head"><h1>写真を選ぶ</h1><p class="pathbar">アップ先：${escapeHtml(state.targetPath || "未選択")}</p></div>
+    <div class="screen__head"><button type="button" class="btn nav-back" data-action="back" aria-label="戻る">‹</button><h1>写真を選ぶ</h1><p class="pathbar">保存先：${escapeHtml(state.targetPath || "未選択")}</p></div>
     <input class="file-input" data-input="camera" type="file" accept="image/*" capture="environment" aria-hidden="true" tabindex="-1">
     <input class="file-input" data-input="album" type="file" accept="image/*" multiple aria-hidden="true" tabindex="-1">
-    <div class="screen__actions"><button type="button" class="btn btn--primary btn--big" data-action="camera">📷 カメラ</button><button type="button" class="btn btn--primary btn--big" data-action="album">🖼 アルバム</button></div>
-    <div class="photo-summary"><strong>${photos.length}枚 / 合計 ${formatBytes(bytes)}</strong>${photos.length ? '<button type="button" class="btn btn--ghost" data-action="clear">全消し</button>' : ""}</div>
+    <div class="bottom-actions photo-actions"><div class="capture-actions"><button type="button" class="btn btn--primary btn--big" data-action="camera">撮影する</button><button type="button" class="btn btn--ghost btn--big" data-action="album">写真を選ぶ</button></div><button type="button" class="btn btn--primary btn--big" data-action="upload" ${photos.length ? "" : "disabled"}>${photos.length}枚の写真を送る</button></div>
+    <div class="photo-summary"><strong>${photos.length}枚 / 合計 ${formatBytes(bytes)}</strong>${photos.length ? '<button type="button" class="btn btn--ghost" data-action="clear">選択を解除</button>' : ""}</div>
     ${photos.length ? `<div class="thumb-grid">${photos.map(photoThumb).join("")}</div>` : '<p class="empty">写真を追加してください。</p>'}
-    <button type="button" class="btn btn--primary btn--big" data-action="upload" ${photos.length ? "" : "disabled"}>この写真をアップロード</button>
-    <button type="button" class="btn btn--ghost" data-action="back">戻る</button>`;
+    
+    `;
   renderToast(state.toast);
 }
 
@@ -2318,12 +2161,12 @@ function render(root, state, actions) {
   const overallPercent = total ? Math.round((done / total) * 100) : 0;
   const complete = !state.uploading && photos.length > 0 && errors === 0 && photos.every((photo) => photo.status === "done");
   section.innerHTML = `
-    <div class="screen__head"><h1>${complete ? "アップロード完了" : "アップロード中"}</h1><p class="pathbar">アップ先：${escapeHtml(state.targetPath || "")}</p></div>
-    <div><div class="progress-row__head"><strong>${done}/${total} ${state.uploading ? "アップ中" : complete ? "完了" : "処理済み"}</strong><span>${overallPercent}%</span></div><div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${overallPercent}"><div class="bar__fill" style="width:${overallPercent}%"></div></div></div>
-    <div>${photos.map(photoRow).join("")}</div>
+    <div class="screen__head"><h1>${complete ? "送信が完了しました" : "写真の送信"}</h1><p class="pathbar">保存先：${escapeHtml(state.targetPath || "")}</p></div>
+    <div class="progress-overall" aria-live="polite"><div class="progress-row__head"><strong>${done} / ${total} 枚 ${state.uploading ? "送信中" : complete ? "完了" : "処理済み"}</strong><span>${overallPercent}%</span></div><div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${overallPercent}"><div class="bar__fill" style="width:${overallPercent}%"></div></div></div>
+    <div class="progress-list">${photos.map(photoRow).join("")}</div><div class="bottom-actions">
     ${errors ? `<p class="status-error">${errors}枚を送れませんでした。</p><button type="button" class="btn btn--primary btn--big" data-action="retry">失敗した写真を再送</button>` : ""}
     ${complete ? '<button type="button" class="btn btn--primary btn--big" data-action="drive">Driveで開く</button>' : ""}
-    ${!state.uploading ? '<button type="button" class="btn btn--ghost" data-action="back">戻る</button>' : ""}`;
+    ${!state.uploading ? '<button type="button" class="btn btn--ghost" data-action="back">戻る</button>' : ""}</div>`;
   renderToast(state.toast);
 }
 
@@ -2397,7 +2240,7 @@ function render(root, state, actions) {
   const spots = Array.isArray(data.spots) ? data.spots : [];
   const site = (state.job && (state.job.site || state.job.folderName)) || data.site || "案件未選択";
   section.innerHTML = `
-    <div class="screen__head"><h1>定点写真</h1><p class="pathbar">${escapeHtml(site)} / 07_SNS_HP素材 / 01_定点ビフォーアフター</p></div>
+    <div class="screen__head"><button type="button" class="btn nav-back" data-action="back" aria-label="戻る">‹</button><h1>定点写真</h1><p class="pathbar">${escapeHtml(site)} / 07_SNS_HP素材 / 01_定点ビフォーアフター</p></div>
     <div class="list-stack spots__list">${spots.length ? spots.map(spotRow).join("") : (state.spotsBusy ? '<p class="empty">読み込み中…</p>' : '<p class="empty">定点がまだありません。</p>')}</div>
     <button type="button" class="btn btn--primary btn--big" data-action="show-add-spot">＋ 定点を追加</button>
     <div class="spots__add" data-role="add-spot" hidden>
@@ -2407,8 +2250,8 @@ function render(root, state, actions) {
       <button type="button" class="btn btn--primary btn--big" data-action="add-spot">追加する</button>
       <button type="button" class="btn btn--ghost" data-action="cancel-add-spot">キャンセル</button>
     </div>
-    <button type="button" class="btn btn--ghost" data-action="open-folder">📂 撮った写真をDriveで見る</button>
-    <button type="button" class="btn btn--ghost" data-action="back">戻る</button>
+    <button type="button" class="btn btn--ghost" data-action="open-folder">撮った写真を見る</button>
+    
     ${state.spotView ? viewerPanel(state.spotView) : ""}`;
   renderToast(state.toast);
 }
@@ -2418,10 +2261,10 @@ function viewerPanel(view) {
   return `<div class="spots__viewer" data-view-code="${escapeAttr(view.code)}">
     <div class="spots__viewer-card">
       <p class="spots__viewer-title">${escapeHtml(view.code)} ${escapeHtml(view.name || "")}</p>
-      ${view.beforeUrl ? `<figure class="spots__figure"><figcaption>before</figcaption><img src="${escapeAttr(view.beforeUrl)}" alt="before"></figure>` : ""}
-      ${view.afterUrl ? `<figure class="spots__figure"><figcaption>after</figcaption><img src="${escapeAttr(view.afterUrl)}" alt="after"></figure>` : ""}
-      <button type="button" class="btn btn--primary" data-action="retake-after">afterを撮り直す</button>
-      <button type="button" class="btn btn--ghost" data-action="retake-before">beforeを撮り直す</button>
+      ${view.beforeUrl ? `<figure class="spots__figure"><figcaption>???</figcaption><img src="${escapeAttr(view.beforeUrl)}" alt="before"></figure>` : ""}
+      ${view.afterUrl ? `<figure class="spots__figure"><figcaption>???</figcaption><img src="${escapeAttr(view.afterUrl)}" alt="after"></figure>` : ""}
+      <button type="button" class="btn btn--primary" data-action="retake-after">撮影後を撮り直す</button>
+      <button type="button" class="btn btn--ghost" data-action="retake-before">撮影前を撮り直す</button>
       <button type="button" class="btn btn--ghost" data-action="close-view">閉じる</button>
     </div>
   </div>`;
@@ -2430,8 +2273,8 @@ function viewerPanel(view) {
 /** 定点情報を受け取り、撮影状況を示す一覧行のHTMLを返す。 */
 function spotRow(spot) {
   const status = getStatus(spot);
-  const label = status === "done" ? "✅ 済" : status === "before" ? "📷 before済" : "⬜ 未";
-  const next = status === "none" ? "beforeを撮る" : status === "before" ? "afterを撮る" : "撮影済み";
+  const label = status === "done" ? "撮影済み" : status === "before" ? "撮影前のみ" : "未撮影";
+  const next = status === "none" ? "撮影前を撮る" : status === "before" ? "撮影後を撮る" : "撮影済み";
   return `<button type="button" class="list-row spots__row" data-spot-code="${escapeAttr(spot.code)}"><span class="row-main"><strong>${escapeHtml(spot.code || "--")} ${escapeHtml(spot.name || "名称なし")}</strong>${spot.how ? `<small>${escapeHtml(spot.how)}</small>` : ""}<small>${escapeHtml(next)}</small></span><span class="spots__status">${label}</span></button>`;
 }
 
@@ -2517,7 +2360,7 @@ function render(root, state, actions) {
   section._beforeUrl = shoot.beforeUrl || null;
   section._orientation = shoot.orientation || null;
   section.innerHTML = `
-    <div class="screen__head"><h1>${escapeHtml(shoot.code || "定点")} ${shoot.kind === "after" ? "after" : "before"}を撮る</h1><p class="muted">同じ位置と向きで撮影してください。</p></div>
+    <div class="screen__head"><h1>${escapeHtml(shoot.code || "定点")} ${shoot.kind === "after" ? "???" : "???"}を撮る</h1><p class="muted">同じ位置と向きで撮影してください。</p></div>
     ${mode === "live" ? liveView(shoot) : photoView(shoot)}
     <button type="button" class="btn btn--ghost" data-action="cancel">中止する</button>`;
   updateOverlay(section, 40);
@@ -2549,7 +2392,7 @@ function liveView(shoot) {
       ${overlayImage(shoot.beforeUrl)}
     </div>
     ${opacityControl(shoot.beforeUrl)}
-    <button type="button" class="btn btn--primary btn--big" data-action="start-live">カメラを起動</button>
+    <button type="button" class="btn btn--primary btn--big shoot-primary" data-action="start-live">カメラを起動</button>
     <button type="button" class="btn btn--primary btn--big shoot__shutter" data-action="shutter" hidden>撮影する</button>`;
 }
 
@@ -2563,20 +2406,20 @@ function photoView(shoot) {
     </div>
     <div data-role="photo-controls" hidden>
       ${opacityControl(shoot.beforeUrl)}
-      <button type="button" class="btn btn--primary btn--big" data-action="confirm-photo">この写真でOK</button>
+      <button type="button" class="btn btn--primary btn--big shoot-primary" data-action="confirm-photo">この写真でOK</button>
       <button type="button" class="btn btn--ghost" data-action="retake">撮り直す</button>
     </div>
-    <button type="button" class="btn btn--primary btn--big" data-action="open-camera">カメラで撮る</button>`;
+    <button type="button" class="btn btn--primary btn--big shoot-primary" data-action="open-camera">カメラで撮る</button>`;
 }
 
 /** before画像URLを受け取り、位置合わせ用の重ね画像を返す。 */
 function overlayImage(beforeUrl) {
-  return beforeUrl ? `<img class="shoot__overlay" data-role="before-overlay" src="${escapeAttr(beforeUrl)}" alt="before写真">` : "";
+  return beforeUrl ? `<img class="shoot__overlay" data-role="before-overlay" src="${escapeAttr(beforeUrl)}" alt="撮影前の写真">` : "";
 }
 
 /** before画像URLを受け取り、透明度スライダーを返す。 */
 function opacityControl(beforeUrl) {
-  return beforeUrl ? `<label class="shoot__opacity">beforeの濃さ <input data-role="overlay-opacity" type="range" min="0" max="70" value="40" aria-label="before写真の濃さ"></label>` : "";
+  return beforeUrl ? `<label class="shoot__opacity">撮影前の写真の濃さ <input data-role="overlay-opacity" type="range" min="0" max="70" value="40" aria-label="撮影前の写真の濃さ"></label>` : "";
 }
 
 /** ライブ開始ボタンからカメラを起動し、失敗時は方式Bへ静かに切り替える。 */
@@ -2783,6 +2626,47 @@ function todayLocalISO() {
 
 // ---- UIに渡すactions（CONTRACTS.md §3-10〜14） ----
 const actions = {
+  /** 入力画面を開き、今日の日付を初期値にする。 */
+  openNewJob() {
+    state.setNewJob({ site: "", work: "", dateISO: todayLocalISO(), phase: "input", busy: false, error: "" });
+  },
+  /** 入力値を状態へ保存する。入力中は再描画しない。 */
+  editNewJob(key, value) {
+    const draft = state.getState().newJob;
+    if (!draft || draft.busy || !["site", "work", "dateISO"].includes(key)) return;
+    state.setNewJob({ ...draft, [key]: value, phase: "input", existingId: null }, false);
+  },
+  /** 入力を検証し、作成する名前を確認画面へ渡す。 */
+  confirmNewJob() {
+    const draft = state.getState().newJob;
+    if (!draft || draft.busy) return;
+    try {
+      state.setNewJob({ ...draft, ...drive.buildJobFolderName(draft), phase: "confirm", error: "" });
+    } catch (e) { state.setNewJob({ ...draft, error: e.message }); }
+  },
+  /** 作成画面を閉じる。通信中の連打・取り消しは受け付けない。 */
+  cancelNewJob() {
+    if (!state.getState().newJob?.busy) state.setNewJob(null);
+  },
+  /** 確認済み入力を保存し、既存の案件選択と同じ流れで工程へ進む。 */
+  async createNewJob() {
+    const draft = state.getState().newJob;
+    if (!draft || draft.busy || !["confirm", "existing"].includes(draft.phase)) return;
+    state.setNewJob({ ...draft, busy: true, error: "" });
+    try {
+      const parentId = await drive.resolveJobsFolderId();
+      const result = await drive.createJobFolder(parentId, draft, draft.existingId || null);
+      if (result.needsConfirmation) {
+        state.setNewJob({ ...draft, phase: "existing", existingId: result.job.id, busy: false, error: "" });
+        return;
+      }
+      state.setJobs([...state.getState().jobs.filter((j) => j.id !== result.job.id), result.job]);
+      state.setNewJob(null);
+      actions.selectJob(result.job);
+    } catch (e) {
+      state.setNewJob({ ...draft, busy: false, error: e.message === "auth" ? "もう一度ログインしてください。" : e.message });
+    }
+  },
   async signIn() {
     try {
       const { email } = await auth.signIn();

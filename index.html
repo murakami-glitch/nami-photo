@@ -151,6 +151,17 @@ input::placeholder { color: var(--c-ink-weak); opacity: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 
+/* 認証待ちと送信履歴。既存の色・カード部品を使う。 */
+.auth-bar { position: fixed; top: var(--top-height); left: 12px; right: 12px; z-index: 80; display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--c-card); color: var(--c-ink); border: 1px solid var(--c-line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.auth-bar .btn { width: auto; flex-shrink: 0; margin: 0; min-height: 56px; }
+.history-button { width: auto; min-width: 44px; margin: 0; background: var(--c-soft); color: var(--c-ink); }
+.step-list small { margin-left: auto; font-size: 12px; font-weight: 400; }
+a.btn { text-decoration: none; }
+
+/* 完了画面の固定ボタンが写真や失敗内容を隠さないよう余白を取る。 */
+.screen[data-screen="progress"] { padding-bottom: calc(350px + env(safe-area-inset-bottom, 0px)); }
+.screen[data-screen="progress"] .bottom-actions { max-height: 50dvh; overflow-y: auto; }
+
 </style>
 </head>
 <body>
@@ -244,6 +255,9 @@ function storageKey(key) {
 function load(key, fallback) {
   const fullKey = storageKey(key);
   let raw = null;
+  if (memory.has(fullKey)) {
+    try { return JSON.parse(memory.get(fullKey)); } catch (_) { return fallback; }
+  }
   try {
     raw = localStorage.getItem(fullKey);
   } catch (_error) {
@@ -319,7 +333,33 @@ function pushRecentJob(job) {
   save("recentJobs", recent);
 }
 
-return { load, save, remove, getDeviceTag, setDeviceTag, getRecentJobs, pushRecentJob };
+/** この端末で送信済みの記録を新しい順で返す。画像は保持しない。 */
+function getUploadHistory() {
+  const records = load("uploadHistory", []);
+  return Array.isArray(records) ? records.filter(r => r && typeof r.fileId === "string" && typeof r.sentAt === "string" && Number.isFinite(Date.parse(r.sentAt))).slice(0, 300) : [];
+}
+/** 成功した1枚の必要項目だけを保存する。同じファイルは重複させない。 */
+function recordUpload(record) {
+  if (!record.fileId) return;
+  const { jobName, jobId, step, fileName, sentAt, fileId, folderId } = record;
+  const row = { jobName, jobId, step, fileName, sentAt, fileId, folderId };
+  save("uploadHistory", [row, ...getUploadHistory().filter(r => r.fileId !== fileId)]
+    .sort((a, b) => b.sentAt.localeCompare(a.sentAt)).slice(0, 300));
+}
+/** 記録を端末の日付・案件・工程・保存先ごとにまとめる。 */
+function groupUploadHistory(records) {
+  const groups = new Map();
+  for (const row of records) {
+    const date = new Date(row.sentAt);
+    const day = [date.getFullYear(), String(date.getMonth()+1).padStart(2,"0"), String(date.getDate()).padStart(2,"0")].join("-");
+    const key = JSON.stringify([day, row.jobId || row.jobName, row.step, row.folderId]);
+    if (!groups.has(key)) groups.set(key, { key, day, jobName: row.jobName, step: row.step, folderId: row.folderId, records: [] });
+    groups.get(key).records.push(row);
+  }
+  return [...groups.values()].sort((a,b) => b.day.localeCompare(a.day));
+}
+
+return { load, save, remove, getDeviceTag, setDeviceTag, getRecentJobs, pushRecentJob, getUploadHistory, recordUpload, groupUploadHistory };
 })();
 
 const __npu_naming = (() => {
@@ -634,6 +674,11 @@ const DRAFT_KEY = "npu.draft";
 // アプリ全体の状態（このモジュールの外から直接触らない）
 const state = {
   screen: "login",        // "login" | "jobs" | "step" | "photos" | "progress"
+  loginBusy: false,
+  authRequired: false,
+  authBusy: false,
+  imageCounts: {},
+  historyGroup: null,
   email: null,            // ログイン中のアカウント
   jobs: [],               // 案件一覧（Job[]）
   newJob: null,           // 新規現場の入力・確認・処理中の状態
@@ -916,137 +961,138 @@ function restoreDraft(draft) {
   emit();
 }
 
-return { getState, _photosRef, subscribe, goto, setNewJob, setSpots, setSpotsBusy, setShoot, setSpotView, setEmail, setJobs, setJob, setStep, setDayFolders, setTarget, setUploading, setOverall, patchPhoto, showToast, addPhotos, removePhoto, clearPhotos, releasePhotoData, loadDraft, clearDraft, restoreDraft };
+/** 再ログイン表示を更新する。選択中の作業は保持する。 */
+function setAuthRequired(required, busy = false) {
+  state.authRequired = required; state.authBusy = busy; emit();
+}
+/** 保存先別の画像数を更新する。nullは読込中、空文字は取得失敗。 */
+function setImageCount(key, value) { state.imageCounts = { ...state.imageCounts, [key]: value }; emit(); }
+/** 履歴で選んだまとまりを保存する。 */
+function setHistoryGroup(group) { state.historyGroup = group; emit(); }
+/** 完了した写真を選択から外し、未送信の写真は残す。 */
+function clearSentPhotos() {
+  state.photos.filter(p => p.status === "done").forEach(p => {
+    if (p.objectUrl) URL.revokeObjectURL(p.objectUrl);
+    p.objectUrl = null; p.blob = null; p.sessionUrl = null;
+  });
+  state.photos = state.photos.filter(p => p.status !== "done"); emit();
+}
+
+/** ログイン操作の連打を防ぐ。 */
+function setLoginBusy(busy) { state.loginBusy = busy; emit(); }
+
+return { getState, _photosRef, subscribe, goto, setNewJob, setSpots, setSpotsBusy, setShoot, setSpotView, setEmail, setJobs, setJob, setStep, setDayFolders, setTarget, setUploading, setOverall, patchPhoto, showToast, addPhotos, removePhoto, clearPhotos, releasePhotoData, loadDraft, clearDraft, restoreDraft, setAuthRequired, setImageCount, setHistoryGroup, clearSentPhotos, setLoginBusy };
 })();
 
 const __npu_auth = (() => {
 const { CONFIG } = __npu_config;
-// auth.js — Googleログインとトークン管理（担当：Claude）
-// トークンはメモリのみ。localStorage には絶対に保存しない。
+// 認証はメモリだけに保持する。要求ごとに独立した受け口を使う。
 
-let tokenClient = null;
-let accessToken = null;
-let expiresAt = 0;          // トークンの有効期限（ms）
-let accountEmail = null;
+let accessToken = null, expiresAt = 0, accountEmail = null, loginHint = "", requestId = 0;
+let pendingSignIn = null, renewal = null;
 const authLostHandlers = new Set();
-
-/** GISスクリプトの読み込みを待って tokenClient を作る */
+/** Googleのログイン部品が使えるまで待つ。 */
 async function init() {
-  await waitForGis();
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CONFIG.CLIENT_ID,
-    scope: CONFIG.SCOPE,
-    callback: () => {}       // 実際のcallbackは要求ごとに差し替える
-  });
+  for (let i = 0; i < 100; i++) {
+    if (globalThis.google?.accounts?.oauth2) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error("Googleログイン部品が読み込めませんでした。再読み込みしてください。");
 }
-
-function waitForGis() {
-  return new Promise((resolve, reject) => {
-    let tries = 0;
-    const timer = setInterval(() => {
-      if (window.google && google.accounts && google.accounts.oauth2) {
-        clearInterval(timer);
-        resolve();
-      } else if (++tries > 100) { // 10秒待ってダメなら諦める
-        clearInterval(timer);
-        reject(new Error("Googleログイン部品が読み込めませんでした。電波を確認して再読み込みしてください。"));
-      }
-    }, 100);
-  });
+/** 前回のメールアドレスを次のログイン候補にする。 */
+function setLoginHint(email) { loginHint = typeof email === "string" ? email.trim() : ""; }
+/** 操作種別と候補からGoogleへ渡す指定を返す。 */
+function tokenOptions(promptMode, hint) {
+  const value = typeof hint === "string" ? hint.trim() : "";
+  return { prompt: promptMode, ...(value ? { hint: value } : {}) };
 }
-
-/** promptを指定してトークンを1回要求する共通処理 */
-function requestToken(promptMode) {
+/** 前回の候補からボタンでのログイン指定を返す。 */
+function signInOptions(hint) {
+  return tokenOptions(typeof hint === "string" && hint.trim() ? "" : "select_account", hint);
+}
+/** 要求単位で応答を受け取る。期限後や後続要求より古い応答は採用しない。 */
+function requestToken(promptMode, hint, timeout = 60000) {
+  const id = ++requestId;
   return new Promise((resolve, reject) => {
-    tokenClient.callback = (resp) => {
-      if (resp.error) { reject(new Error(resp.error)); return; }
-      accessToken = resp.access_token;
-      expiresAt = Date.now() + (resp.expires_in - 60) * 1000; // 60秒の余裕を持つ
+    let finished = false;
+    const finish = (error, response) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      if (id !== requestId) { reject(new Error("superseded")); return; }
+      if (error) { reject(error); return; }
+      accessToken = response.access_token;
+      expiresAt = Date.now() + (Number(response.expires_in) - 60) * 1000;
+      if (renewal) { const waiting = renewal; renewal = null; waiting.resolve(accessToken); }
       resolve(accessToken);
     };
-    tokenClient.error_callback = (err) => reject(new Error(err.type || "auth_error"));
-    tokenClient.requestAccessToken({ prompt: promptMode });
+    const timer = setTimeout(() => finish(new Error("timeout")), timeout);
+    try {
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: CONFIG.CLIENT_ID, scope: CONFIG.SCOPE,
+        callback: response => finish(response.error || !response.access_token ? new Error(response.error || "auth_error") : null, response),
+        error_callback: error => finish(new Error(error.type || "auth_error"))
+      });
+      client.requestAccessToken(tokenOptions(promptMode, hint));
+    } catch (error) { finish(error); }
   });
 }
-
-/** ログインボタンから呼ぶ（ユーザー操作起点）。連打しても処理は1回だけ走る。→ { email } */
-let pendingSignIn = null;
-
-async function signIn() {
+/** ボタン操作からログインし、アカウントを返す。連打はまとめる。 */
+function signIn() {
   if (!pendingSignIn) {
-    pendingSignIn = (async () => {
-      await requestToken(accountEmail ? "" : "select_account");
-      accountEmail = await fetchEmail();
-      return { email: accountEmail };
-    })().finally(() => { pendingSignIn = null; });
+    const options = signInOptions(loginHint);
+    pendingSignIn = requestToken(options.prompt, options.hint)
+      .then(async () => { accountEmail = await fetchEmail(); return { email: accountEmail }; })
+      .finally(() => { pendingSignIn = null; });
   }
   return pendingSignIn;
 }
-
-/**
- * 起動時の自動ログイン。前にログインしたことがある端末で、
- * ボタンを押さずに静かにログインを試す。ダメなら null（普通のログイン画面へ）。
- */
+/** 起動時の応答は最大4秒だけ待つ。期限後の応答は採用しない。 */
 async function trySilentSignIn() {
+  const started = Date.now();
   try {
-    await requestToken("");
-    accountEmail = await fetchEmail();
-    return accountEmail ? { email: accountEmail } : null;
-  } catch (e) {
-    return null;
+    await requestToken("", loginHint, 4000);
+    accountEmail = await fetchEmail(Math.max(1, 4000 - (Date.now() - started)));
+    return { email: accountEmail };
+  } catch (_) { return null; }
+}
+/** 期限切れを知らせる。古い通信の401で新しい認証を消さない。 */
+function notifyAuthLost(rejectedToken = accessToken) {
+  if (rejectedToken !== accessToken) return;
+  accessToken = null; expiresAt = 0;
+  if (!renewal) {
+    let resolve;
+    const promise = new Promise(r => { resolve = r; });
+    renewal = { promise, resolve };
+    authLostHandlers.forEach(fn => fn());
   }
 }
-
-/** トークンが実は死んでいた（APIが401を返した）ときに呼ぶ。全画面に再ログインを促す */
-function notifyAuthLost() {
-  accessToken = null;
-  expiresAt = 0;
-  authLostHandlers.forEach((fn) => fn());
-}
-
-/**
- * 有効なトークン文字列を返す。
- * 期限切れなら prompt:'' でサイレント再取得。失敗したら onAuthLost に通知して例外。
- * 並列アップロード中に同時に呼ばれても再取得は1回だけ走る（callbackの上書き事故防止）。
- */
-let pendingRefresh = null;
-
+/** 有効な認証を返す。期限切れなら作業を保持し、操作による更新を待つ。 */
 async function ensureToken() {
   if (accessToken && Date.now() < expiresAt) return accessToken;
-  if (!pendingRefresh) {
-    pendingRefresh = requestToken("").finally(() => { pendingRefresh = null; });
-  }
+  notifyAuthLost();
+  return renewal.promise;
+}
+/** 「続ける」の操作から認証を更新し、待っている通信を再開する。 */
+function continueSignIn() { return requestToken("", loginHint); }
+/** 追加権限なしでログイン中のメールアドレスを返す。 */
+async function fetchEmail(timeout = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
-    await pendingRefresh;
-    return accessToken;
-  } catch (e) {
-    notifyAuthLost();
-    throw new Error("auth");
-  }
+    const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)", {
+      headers: { Authorization: "Bearer " + accessToken }, signal: controller.signal
+    });
+    if (!res.ok) throw new Error("アカウントを確認できませんでした");
+    return (await res.json()).user?.emailAddress || null;
+  } finally { clearTimeout(timer); }
 }
+/** 現在のアカウントを返す。 */
+function getAccountEmail() { return accountEmail; }
+/** 再ログイン表示の通知先を登録し、解除関数を返す。 */
+function onAuthLost(fn) { authLostHandlers.add(fn); return () => authLostHandlers.delete(fn); }
 
-/** ログイン中のメールアドレス（Drive APIのaboutで取る。追加スコープ不要） */
-async function fetchEmail() {
-  const res = await fetch(
-    "https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",
-    { headers: { Authorization: "Bearer " + accessToken } }
-  );
-  if (!res.ok) return null;
-  const json = await res.json();
-  return (json.user && json.user.emailAddress) || null;
-}
-
-function getAccountEmail() {
-  return accountEmail;
-}
-
-/** 401などで再ログインが必要になったときに呼ばれる関数を登録 */
-function onAuthLost(fn) {
-  authLostHandlers.add(fn);
-  return () => authLostHandlers.delete(fn);
-}
-
-return { init, signIn, trySilentSignIn, notifyAuthLost, ensureToken, getAccountEmail, onAuthLost };
+return { init, setLoginHint, tokenOptions, signInOptions, signIn, trySilentSignIn, notifyAuthLost, ensureToken, continueSignIn, getAccountEmail, onAuthLost };
 })();
 
 const __npu_drive = (() => {
@@ -1121,8 +1167,9 @@ async function gfetch(url, options = {}) {
     headers: { Authorization: "Bearer " + token, ...(options.headers || {}) }
   });
   if (res.status === 401) {
-    notifyAuthLost();
-    throw new Error("auth");
+    notifyAuthLost(token);
+    await ensureToken();
+    return gfetch(url, options);
   }
   return res;
 }
@@ -1302,8 +1349,9 @@ async function sendChunk(sessionUrl, blob, offset) {
     return { done: true, nextOffset: blob.size, fileId: json.id };
   }
   if (res.status === 401) {
-    notifyAuthLost();
-    throw new Error("auth");
+    notifyAuthLost(token);
+    await ensureToken();
+    return sendChunk(sessionUrl, blob, offset);
   }
   throw new Error("送信に失敗しました（" + res.status + "）");
 }
@@ -1325,8 +1373,9 @@ async function probeResumable(sessionUrl, totalBytes) {
   }
   if (res.ok) return -1; // すでに完了していた
   if (res.status === 401) {
-    notifyAuthLost();
-    throw new Error("auth"); // 認証切れはセッションを捨てず、再ログイン後に続きから
+    notifyAuthLost(token);
+    await ensureToken();
+    return probeResumable(sessionUrl, totalBytes); // 認証切れはセッションを捨てず、再ログイン後に続きから
   }
   throw new Error("再開の確認に失敗しました（" + res.status + "）");
 }
@@ -1396,7 +1445,22 @@ async function updateSpotsJson(fileId, obj, expectedParentId) {
   if (!res.ok) throw new Error("台帳の更新に失敗しました（" + res.status + "）");
 }
 
-return { buildJobFolderName, createJobFolder, resolveJobsFolderId, listJobs, findChild, ensureFolder, resolveStepFolderId, listDayFolders, listFileNames, startResumable, sendChunk, probeResumable, folderWebUrl, findJsonInFolder, downloadFileBlob, createJsonFile, updateSpotsJson };
+/** フォルダ直下の画像数を全ページから数える。追加は行わない。 */
+async function countImages(folderId) {
+  return (await listAll("'" + esc(folderId) + "' in parents and trashed=false and mimeType contains 'image/'", "files(id)")).length;
+}
+/** 既存の工程パスだけをたどり、無ければnullを返す。 */
+async function findStepFolderId(job, step) {
+  let id = job.id;
+  for (const name of step.path) {
+    const folder = await findChild(id, name);
+    if (!folder) return null;
+    id = folder.id;
+  }
+  return id;
+}
+
+return { buildJobFolderName, createJobFolder, resolveJobsFolderId, listJobs, findChild, ensureFolder, resolveStepFolderId, listDayFolders, listFileNames, startResumable, sendChunk, probeResumable, folderWebUrl, findJsonInFolder, downloadFileBlob, createJsonFile, updateSpotsJson, countImages, findStepFolderId };
 })();
 
 const __npu_spots = (() => {
@@ -1678,6 +1742,9 @@ async function uploadOne(photo, target, hooks) {
     // 前回の続きがあるか照会。-1なら実は届き切っていた（応答だけ落ちたケース）
     const next = await probeResumable(photo.sessionUrl, photo.blob.size);
     if (next === -1) {
+      const found = await findJsonInFolder(target.folderId, photo.fileName);
+      if (!found) throw new Error("送信した写真の確認をやり直します");
+      photo.driveFileId = found.id;
       photo.status = "done";
       photo.progress = 100;
       hooks.onPhoto(photo);
@@ -1883,7 +1950,7 @@ function render(root, state, actions) {
       <p class="muted">会社のGoogleアカウントでログインしてください。</p>
     </div>
     <div class="welcome-card"><span class="welcome-mark" aria-hidden="true">≈</span><h2>撮った写真を、その場で。</h2><p class="muted">現場と工程を選んで、写真を送れます。</p></div><div class="bottom-actions">
-      <button type="button" class="btn btn--primary btn--big" data-action="sign-in">Googleでログイン</button>
+      <button type="button" class="btn btn--primary btn--big" data-action="sign-in" ${state.loginBusy ? "disabled" : ""}>${state.loginBusy ? "確認中…" : "Googleでログイン"}</button>
     </div>`;
   renderToast(state.toast);
 }
@@ -1922,6 +1989,9 @@ function mount(root, actions) {
     filterRows(section, event.target.value);
   });
   section.addEventListener("click", (event) => {
+    if (event.target.closest("[data-history-back]")) { actions.back(); return; }
+    const history = event.target.closest("[data-history-index]");
+    if (history) { actions.selectHistory(actions.getHistory()[Number(history.dataset.historyIndex)]); return; }
     const action = event.target.closest("[data-new-job-action]");
     if (action) {
       actions[action.dataset.newJobAction]();
@@ -1939,6 +2009,10 @@ function render(root, state, actions) {
   root.querySelectorAll(".screen").forEach((screen) => screen.classList.remove("screen--active"));
   const section = root.querySelector('[data-screen="jobs"]');
   section.classList.add("screen--active");
+  if (state.screen === "history") {
+    section.innerHTML = historyPanel(state.historyGroup, actions.getHistory());
+    renderToast(state.toast); return;
+  }
   if (state.newJob) {
     section.innerHTML = newJobPanel(state.newJob);
     renderToast(state.toast);
@@ -1994,6 +2068,13 @@ function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (cha
 /** 任意の値を受け取り、HTML属性用の安全な文字列を返す。 */
 function escapeAttr(value) { return escapeHtml(value); }
 
+/** 日付別履歴または選択した記録のファイル一覧を返す。 */
+function historyPanel(group, groups) {
+  const header = '<div class="screen__head"><button class="btn nav-back" data-history-back aria-label="戻る">‹</button><h1>送信履歴</h1><p class="muted">この端末から送った写真・最新300枚</p></div>';
+  if (group) return header + '<h2>' + escapeHtml(group.day + ' ' + group.jobName + ' ' + group.step) + '</h2><div class="list-stack">' + group.records.map(r => '<div class="list-row">' + escapeHtml(r.fileName) + '</div>').join('') + '</div><a class="btn btn--primary btn--big" target="_blank" rel="noopener noreferrer" href="https://drive.google.com/drive/folders/' + encodeURIComponent(group.folderId) + '">ドライブで見る</a>';
+  return header + '<div class="list-stack">' + (groups.length ? groups.map((g, i) => '<button class="list-row" data-history-index="' + i + '"><span class="row-main"><strong>' + escapeHtml(g.day + ' ' + g.jobName) + '</strong><small>' + escapeHtml(g.step) + ' ' + g.records.length + '枚</small></span><span>›</span></button>').join('') : '<p class="empty">まだ送信履歴はありません。</p>') + '</div>';
+}
+
 return { mount, render };
 })();
 
@@ -2036,12 +2117,14 @@ function render(root, state, actions) {
   }
   const showDays = section.dataset.showDays === "true" || days.length > 0;
   section._daysById = new Map(days.map((day) => [String(day.id), day]));
+  const countText = key => { const n = state.imageCounts?.[key]; return n === null || n === undefined ? "…" : n === "" ? "" : `ドライブに ${n}枚`; };
+  const stepRow = (key, label) => stepButton(key, label, countText(jobId + ":" + key));
   section.innerHTML = `
     <div class="screen__head"><button type="button" class="btn nav-back" data-action="back" aria-label="戻る">‹</button><h1>工程を選ぶ</h1><p class="muted">${escapeHtml(state.job?.site || state.job?.folderName || "")}</p></div>
     <div class="list-stack step-list">
-      ${stepButton("pre", "事前資料")}${stepButton("before", "着工前")}${stepButton("during", "施工中")}${stepButton("done", "完了")}${stepButton("sns", "SNS素材")}
+      ${stepRow("pre", "事前資料")}${stepRow("before", "着工前")}${stepRow("during", "施工中")}${stepRow("done", "完了")}${stepRow("sns", "SNS素材")}
     </div>
-    ${showDays ? `<div class="screen__head"><h2 class="section-title">施工中の日付を選ぶ</h2>${days.length ? `<div class="list-stack">${days.map(dayRow).join("")}</div>` : '<p class="empty">日付がまだありません。</p>'}<button type="button" class="btn btn--primary btn--big" data-action="create-day">今日の日付で新規作成</button></div>` : ""}
+    ${showDays ? `<div class="screen__head"><h2 class="section-title">施工中の日付を選ぶ</h2>${days.length ? `<div class="list-stack">${days.map(day => dayRow(day, countText(day.id))).join("")}</div>` : '<p class="empty">日付がまだありません。</p>'}<button type="button" class="btn btn--primary btn--big" data-action="create-day">今日の日付で新規作成</button></div>` : ""}
     <h2 class="section-title">SNS・HP素材づくり</h2>
     <button type="button" class="btn btn--big spots-entry" data-action="open-spots">同じ場所の撮影前・撮影後</button>
     `;
@@ -2049,9 +2132,9 @@ function render(root, state, actions) {
 }
 
 /** 工程キーと表示名を受け取り、大ボタンのHTMLを返す。 */
-function stepButton(key, label) { return `<button type="button" class="btn btn--primary btn--big" data-step-key="${key}">${label}</button>`; }
+function stepButton(key, label, count) { return `<button type="button" class="btn btn--primary btn--big" data-step-key="${key}">${label}<small>${count}</small></button>`; }
 /** Day情報を受け取り、日付選択ボタンのHTMLを返す。 */
-function dayRow(day) { return `<button type="button" class="list-row" data-day-id="${escapeAttr(day.id)}"><span class="row-main"><strong>Day${escapeHtml(day.n)}</strong><small>${escapeHtml(day.dateISO || day.name || "")}</small></span><span aria-hidden="true">›</span></button>`; }
+function dayRow(day, count) { return `<button type="button" class="list-row" data-day-id="${escapeAttr(day.id)}"><span class="row-main"><strong>Day${escapeHtml(day.n)}</strong><small>${escapeHtml(day.dateISO || day.name || "")}</small><small>${count}</small></span><span aria-hidden="true">›</span></button>`; }
 /** 通知文を受け取り、共通の通知欄を更新する。 */
 function renderToast(message) { const root = document.getElementById("toast-root"); if (root) root.innerHTML = message ? `<div class="toast" role="status">${escapeHtml(message)}</div>` : ""; }
 /** 任意の値を受け取り、HTML表示用の安全な文字列を返す。 */
@@ -2099,8 +2182,10 @@ function render(root, state, actions) {
   section.classList.add("screen--active");
   const photos = state.photos || [];
   const bytes = photos.reduce((sum, photo) => sum + Number(photo.bytes || 0), 0);
+  const count = state.imageCounts?.[state.targetFolderId];
+  const countText = count === null || count === undefined ? "…" : count === "" ? "" : `ドライブに ${count}枚`;
   section.innerHTML = `
-    <div class="screen__head"><button type="button" class="btn nav-back" data-action="back" aria-label="戻る">‹</button><h1>写真を選ぶ</h1><p class="pathbar">保存先：${escapeHtml(state.targetPath || "未選択")}</p></div>
+    <div class="screen__head"><button type="button" class="btn nav-back" data-action="back" aria-label="戻る">‹</button><h1>写真を選ぶ</h1><p class="pathbar">保存先：${escapeHtml(state.targetPath || "未選択")}</p>${countText ? `<p class="muted">このフォルダ：${countText}</p>` : ""}</div>
     <input class="file-input" data-input="camera" type="file" accept="image/*" capture="environment" aria-hidden="true" tabindex="-1">
     <input class="file-input" data-input="album" type="file" accept="image/*" multiple aria-hidden="true" tabindex="-1">
     <div class="bottom-actions photo-actions"><div class="capture-actions"><button type="button" class="btn btn--primary btn--big" data-action="camera">撮影する</button><button type="button" class="btn btn--ghost btn--big" data-action="album">写真を選ぶ</button></div><button type="button" class="btn btn--primary btn--big" data-action="upload" ${photos.length ? "" : "disabled"}>${photos.length}枚の写真を送る</button></div>
@@ -2143,6 +2228,8 @@ function mount(root, actions) {
   section.addEventListener("click", (event) => {
     if (event.target.closest('[data-action="retry"]')) actions.retryFailed();
     else if (event.target.closest('[data-action="drive"]')) actions.openDriveFolder();
+    else if (event.target.closest('[data-action="continue"]')) actions.continuePhotos();
+    else if (event.target.closest('[data-action="step"]')) actions.chooseStep();
     else if (event.target.closest('[data-action="back"]')) actions.back();
   });
   root.appendChild(section);
@@ -2155,18 +2242,19 @@ function render(root, state, actions) {
   const section = root.querySelector('[data-screen="progress"]');
   section.classList.add("screen--active");
   const photos = state.photos || [];
-  const total = Number(state.overall?.total || photos.length);
-  const done = Number(state.overall?.done || photos.filter((photo) => photo.status === "done").length);
+  const total = photos.length;
+  const done = photos.filter((photo) => photo.status === "done").length;
   const errors = photos.filter((photo) => photo.status === "error").length;
   const overallPercent = total ? Math.round((done / total) * 100) : 0;
   const complete = !state.uploading && photos.length > 0 && errors === 0 && photos.every((photo) => photo.status === "done");
   section.innerHTML = `
-    <div class="screen__head"><h1>${complete ? "送信が完了しました" : "写真の送信"}</h1><p class="pathbar">保存先：${escapeHtml(state.targetPath || "")}</p></div>
+    <div class="screen__head"><h1>${!state.uploading ? `✓ ${done}枚 送りました` : "写真の送信"}</h1><p class="muted">${escapeHtml(state.job?.site)} / ${escapeHtml(state.step?.fileLabel)}</p><p class="pathbar">保存先：${escapeHtml(state.targetPath || "")}</p></div>
     <div class="progress-overall" aria-live="polite"><div class="progress-row__head"><strong>${done} / ${total} 枚 ${state.uploading ? "送信中" : complete ? "完了" : "処理済み"}</strong><span>${overallPercent}%</span></div><div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${overallPercent}"><div class="bar__fill" style="width:${overallPercent}%"></div></div></div>
+    ${!state.uploading ? `<div class="thumb-grid">${photos.filter(p => p.status === "done" && p.objectUrl).map(p => `<div class="thumb"><img src="${escapeHtml(p.objectUrl)}" alt="${escapeHtml(p.fileName)}" loading="lazy"></div>`).join("")}</div>` : ""}
     <div class="progress-list">${photos.map(photoRow).join("")}</div><div class="bottom-actions">
-    ${errors ? `<p class="status-error">${errors}枚を送れませんでした。</p><button type="button" class="btn btn--primary btn--big" data-action="retry">失敗した写真を再送</button>` : ""}
-    ${complete ? '<button type="button" class="btn btn--primary btn--big" data-action="drive">Driveで開く</button>' : ""}
-    ${!state.uploading ? '<button type="button" class="btn btn--ghost" data-action="back">戻る</button>' : ""}</div>`;
+    ${errors && !state.uploading ? `<p class="status-error">${errors}枚を送れませんでした。</p><button type="button" class="btn btn--primary btn--big" data-action="retry">もう一度送る</button>` : ""}
+    ${!state.uploading ? '<button type="button" class="btn btn--primary btn--big" data-action="continue">続けて撮る</button><button type="button" class="btn btn--ghost btn--big" data-action="step">工程を選び直す</button><button type="button" class="btn btn--ghost" data-action="drive">ドライブで見る</button>' : ""}
+</div>`;
   renderToast(state.toast);
 }
 
@@ -2578,6 +2666,7 @@ const { isLiveAvailable } = __npu_camera;
 const SCREENS = {
   login: uiLogin,
   jobs: uiJobs,
+  history: uiJobs,
   step: uiStep,
   photos: uiPhotos,
   progress: uiProgress,
@@ -2587,22 +2676,31 @@ const SCREENS = {
 
 // ---- uploaderのhook（進捗をstateへ流す） ----
 const hooks = {
-  onPhoto: (photo) => state.patchPhoto(photo.id, {
+  onPhoto: (photo) => {
+    if (photo.status === "done" && photo.driveFileId && !photo.historySaved) {
+      const s = state.getState();
+      storage.recordUpload({ jobName: s.job.site, jobId: s.job.id, step: s.step.fileLabel, fileName: photo.fileName, sentAt: new Date().toISOString(), fileId: photo.driveFileId, folderId: s.targetFolderId });
+      photo.historySaved = true;
+    }
+    state.patchPhoto(photo.id, {
     status: photo.status, progress: photo.progress,
     fileName: photo.fileName, driveFileId: photo.driveFileId, error: photo.error
-  }),
+  });
+  },
   onOverall: (done, total) => state.setOverall(done, total),
   onFinish: (result) => {
+    refreshFolderCount(state.getState().targetFolderId);
+    refreshStepCounts(state.getState().job);
     state.setUploading(false);
     if (result.authLost) {
       state.showToast("ログインが切れました。もう一度ログインすると続きから送れます。");
-      state.goto("login");
+      state.setAuthRequired(true);
       return;
     }
     if (result.failed === 0) {
       state.showToast(`✅ ${result.done}枚アップ完了`);
       state.clearDraft();
-      state.releasePhotoData();   // 写真の中身をメモリから手放す（表示は残る）
+      // サムネイルは完了画面を離れるまで保持する。
     } else {
       state.showToast(`⚠️ ${result.failed}枚送れませんでした`);
     }
@@ -2626,6 +2724,26 @@ function todayLocalISO() {
 
 // ---- UIに渡すactions（CONTRACTS.md §3-10〜14） ----
 const actions = {
+  /** 有効期限の案内から認証を更新し、待っている処理を進める。 */
+  async continueSignIn() {
+    if (state.getState().authBusy) return;
+    state.setAuthRequired(true, true);
+    try { await auth.continueSignIn(); state.setAuthRequired(false); }
+    catch (_) { state.setAuthRequired(true); state.showToast("ログインできませんでした。もう一度［続ける］を押してください。"); }
+  },
+  /** 成功した写真を外し、同じ保存先で撮影を続ける。 */
+  continuePhotos() { state.clearSentPhotos(); state.goto("photos"); },
+  /** 未送信写真があれば写真画面へ戻し、選び直しによる消失を防ぐ。 */
+  chooseStep() {
+    state.clearSentPhotos();
+    if (state.getState().photos.length) { state.goto("photos"); state.showToast("送れていない写真が残っています。"); return; }
+    state.goto("step"); refreshStepCounts(state.getState().job);
+  },
+  /** この端末の履歴を表示する。 */
+  openHistory() { state.setHistoryGroup(null); state.goto("history"); },
+  selectHistory(group) { state.setHistoryGroup(group); },
+  getHistory: () => storage.groupUploadHistory(storage.getUploadHistory()),
+
   /** 入力画面を開き、今日の日付を初期値にする。 */
   openNewJob() {
     state.setNewJob({ site: "", work: "", dateISO: todayLocalISO(), phase: "input", busy: false, error: "" });
@@ -2668,22 +2786,27 @@ const actions = {
     }
   },
   async signIn() {
+    if (state.getState().loginBusy) return;
+    state.setLoginBusy(true);
     try {
       const { email } = await auth.signIn();
       state.setEmail(email);
+      auth.setLoginHint(email);
       storage.save("lastEmail", email);   // 次回から自動ログインを試すための目印
       await loadJobs();
       // 起動時に「前回の続きから」を選んでいた場合は、案件選択を飛ばして工程選択へ
       state.goto(state.getState().job ? "step" : "jobs");
+      if (state.getState().job) refreshStepCounts(state.getState().job);
     } catch (e) {
       state.showToast("ログインできませんでした。もう一度お試しください。");
-    }
+    } finally { state.setLoginBusy(false); }
   },
 
   selectJob(job) {
     state.setJob(job);
     storage.pushRecentJob(job);
     state.goto("step");
+    refreshStepCounts(job);
   },
 
   async selectStep(stepKey) {
@@ -2695,6 +2818,7 @@ const actions = {
         // 施工中はまずDayN一覧を出す（選択 or 新規作成はui-stepの中で）
         const days = await drive.listDayFolders(s.job);
         state.setDayFolders(days);
+        days.forEach(day => refreshFolderCount(day.id));
         return; // 画面はそのまま。ui-stepがDay選択UIを出す
       }
       const step = { ...def };
@@ -2702,6 +2826,7 @@ const actions = {
       state.setStep(step);
       state.setTarget(folderId, [s.job.folderName, ...step.path].join(" / "));
       state.goto("photos");
+      refreshFolderCount(folderId);
     } catch (e) {
       showError(e);
     }
@@ -2718,6 +2843,7 @@ const actions = {
     state.setStep(step);
     state.setTarget(day.id, [s.job.folderName, ...step.path].join(" / "));
     state.goto("photos");
+    refreshFolderCount(day.id);
   },
 
   /** 施工中：「今日の日付で新規作成」 */
@@ -2743,7 +2869,7 @@ const actions = {
 
   async startUpload() {
     const s = state.getState();
-    if (!s.targetFolderId || s.photos.length === 0) return;
+    if (s.uploading || !s.targetFolderId || s.photos.length === 0) return;
     state.setUploading(true);
     state.goto("progress");
     // stateのコピーではなく実体を渡すため、stateモジュール側の配列を使う
@@ -2755,6 +2881,7 @@ const actions = {
   },
 
   async retryFailed() {
+    if (state.getState().uploading) return;
     state.setUploading(true);
     await uploader.retryFailed(hooks);
   },
@@ -2767,6 +2894,8 @@ const actions = {
   back() {
     const s = state.getState();
     if (s.uploading) return;
+    if (s.screen === "history") { if (s.historyGroup) state.setHistoryGroup(null); else state.goto("jobs"); return; }
+    if (s.screen === "progress") { actions.continuePhotos(); return; }
     if (s.screen === "shoot") { state.setShoot(null); state.goto("spots"); return; }
     if (s.screen === "spots") { state.goto("step"); return; }
     const order = ["login", "jobs", "step", "photos", "progress"];
@@ -2906,7 +3035,8 @@ const actions = {
 
       const ymd = todayLocalISO().replace(/-/g, "");
       const name = `${ymd}_${sanitize(s.job.site)}_${shoot.code}_${shoot.kind}.${ext}`;
-      const { fileId } = await uploader.uploadSingle(upBlob, p2, name, null);
+      const { fileId, fileName } = await uploader.uploadSingle(upBlob, p2, name, null);
+      storage.recordUpload({ jobName: s.job.site, jobId: s.job.id, step: "定点 " + shoot.code + " " + shoot.kind, fileName, sentAt: new Date().toISOString(), fileId, folderId: p2 });
 
       // クローン上で台帳を更新し、Drive保存が成功してから画面に反映
       const draft = structuredClone(s.spotsData);
@@ -2977,6 +3107,34 @@ function askDeviceTagIfNeeded() {
   });
 }
 
+/** 画像数を更新する。通信できなければ表示を外す。 */
+async function refreshFolderCount(folderId) {
+  if (!folderId) return;
+  state.setImageCount(folderId, null);
+  try { state.setImageCount(folderId, await drive.countImages(folderId)); }
+  catch (_) { state.setImageCount(folderId, ""); }
+}
+/** 工程の件数を既存フォルダだけから読む。施工中は各Dayも合計する。 */
+async function refreshStepCounts(job) {
+  if (!job) return;
+  await Promise.all(STEPS.map(async step => {
+    const key = job.id + ":" + step.key;
+    state.setImageCount(key, null);
+    try {
+      const id = await drive.findStepFolderId(job, step);
+      let count = id ? await drive.countImages(id) : 0;
+      if (step.key === "during") {
+        const days = await drive.listDayFolders(job);
+        for (const day of days) {
+          const n = await drive.countImages(day.id);
+          state.setImageCount(day.id, n); count += n;
+        }
+      }
+      state.setImageCount(key, count);
+    } catch (_) { state.setImageCount(key, ""); }
+  }));
+}
+
 // ---- 起動 ----
 async function loadJobs() {
   const jobsFolderId = await drive.resolveJobsFolderId();
@@ -2987,7 +3145,24 @@ async function loadJobs() {
 function renderLoop() {
   const root = document.getElementById("screens");
   Object.values(SCREENS).forEach((m) => m.mount && m.mount(root, actions));
+  const historyButton = document.createElement("button");
+  historyButton.className = "btn history-button";
+  historyButton.textContent = "履歴";
+  historyButton.onclick = actions.openHistory;
+  historyButton.hidden = true;
+  document.querySelector(".appbar").appendChild(historyButton);
+  const authBar = document.createElement("div");
+  authBar.className = "auth-bar";
+  authBar.setAttribute("role", "status");
+  authBar.hidden = true;
+  authBar.innerHTML = '<span>ログインの有効期限が切れました</span><button class="btn btn--primary">続ける</button>';
+  authBar.querySelector("button").onclick = actions.continueSignIn;
+  document.getElementById("app").appendChild(authBar);
   state.subscribe((s) => {
+    historyButton.hidden = s.screen !== "jobs";
+    authBar.hidden = !s.authRequired;
+    authBar.querySelector("button").disabled = s.authBusy;
+    authBar.querySelector("button").textContent = s.authBusy ? "確認中…" : "続ける";
     const mod = SCREENS[s.screen];
     if (mod) mod.render(root, s, actions);
     const acct = document.getElementById("acct");
@@ -3008,11 +3183,8 @@ async function boot() {
   } catch (e) {
     state.showToast(e.message);
   }
-  auth.onAuthLost(() => {
-    state.setUploading(false);
-    state.showToast("ログインが切れました。もう一度ログインしてください。");
-    state.goto("login");
-  });
+  auth.setLoginHint(storage.load("lastEmail", null));
+  auth.onAuthLost(() => state.setAuthRequired(true));
 
   // 下書きの復元確認（復元されるのは案件だけ。工程は選び直してもらう）
   const draft = state.loadDraft();
@@ -3024,19 +3196,22 @@ async function boot() {
 
   // 前にログインしたことがある端末なら、ボタンを押させずに静かに自動ログイン
   if (storage.load("lastEmail", null)) {
+    state.setLoginBusy(true);
     const silent = await auth.trySilentSignIn();
+    state.setLoginBusy(false);
     if (silent && silent.email) {
       state.setEmail(silent.email);
       try {
         await loadJobs();
         state.goto(state.getState().job ? "step" : "jobs");
+        if (state.getState().job) refreshStepCounts(state.getState().job);
         return;
       } catch (e) {
         showError(e);
       }
     }
   }
-  state.goto("login");
+  if (!state.getState().email) state.goto("login");
 }
 
 boot();
